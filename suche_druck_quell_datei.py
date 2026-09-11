@@ -68,9 +68,9 @@ _boot_log("03 Standardimporte bereit; pandas wird verzögert geladen")
 st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
-APP_CACHE_VERSION = "waschen-tanken-dashboard-2026-09-04-v50-reisekosten-vorschau"
-EXTRA_CACHE_VERSION = "extra-parser-2026-09-04-v50-reisekosten-vorschau"
-APP_DISPLAY_VERSION = "50"
+APP_CACHE_VERSION = "hupa-dashboard-2026-09-11-v51"
+EXTRA_CACHE_VERSION = "extra-parser-2026-09-11-v51-hupa"
+APP_DISPLAY_VERSION = "51"
 APP_DISPLAY_NAME = "NFC Generator"
 
 
@@ -5832,6 +5832,7 @@ def _build_embedded_data_js(
     *,
     fahrzeugwaesche_json: str,
     tanken_json: str,
+    hupa_json: str,
     tel_json: str,
     sam_json: str,
     fa_json: str,
@@ -5848,6 +5849,7 @@ def _build_embedded_data_js(
     data = {
         "fahrzeugwaesche": _json_or_default(fahrzeugwaesche_json, "[]"),
         "tanken": _json_or_default(tanken_json, "[]"),
+        "hupa": _json_or_default(hupa_json, "[]"),
         "telefon": _json_or_default(tel_json, "[]"),
         "samstag": _json_or_default(sam_json, "[]"),
         "fahrer": _json_or_default(fa_json, "[]"),
@@ -6370,6 +6372,226 @@ def _zulagen_graph_js() -> str:
 
 
 
+def _hupa_panels_html() -> str:
+    """HuPa TKT-Bewegungen: allgemeine Mengen und Monatskurve."""
+    return r"""
+<style>
+  #panel-hupa{--hp:#6d28d9;--hp-soft:#f5f3ff;--ink:#172033;--muted:#64748b}
+  .hp-shell{width:100%;max-width:1728px;margin:0 auto}
+  .hp-card{background:#fff;border:1px solid #d8dee7;border-radius:13px;box-shadow:0 3px 12px rgba(15,23,42,.06);overflow:hidden}
+  .hp-head{display:flex;align-items:center;gap:13px;padding:17px 20px;background:linear-gradient(180deg,#faf7ff 0%,#fff 100%);border-bottom:1px solid #eceff4;flex-wrap:wrap}
+  .hp-icon{width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,#8b5cf6,#6d28d9);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 5px 13px rgba(109,40,217,.22);flex-shrink:0}
+  .hp-title{font-size:19px;font-weight:950;color:var(--ink);letter-spacing:-.3px}
+  .hp-sub{font-size:11.5px;font-weight:650;color:var(--muted);margin-top:2px}
+  .hp-badge{display:inline-flex;align-items:center;padding:4px 9px;border-radius:999px;background:#f5f3ff;border:1px solid #ddd6fe;color:#5b21b6;font-size:10px;font-weight:900}
+  .hp-select{padding:9px 11px;border:1.5px solid #cfd8e3;border-radius:8px;background:#fff;color:#26374a;font:700 12px 'Segoe UI',Arial,sans-serif;outline:none;min-width:110px}
+  .hp-tabs{display:flex;gap:7px;padding:12px 18px;background:#fbfcfe;border-bottom:1px solid #edf1f5}
+  .hp-tab{border:1px solid #d7dce4;background:#fff;color:#536273;border-radius:8px;padding:8px 14px;font:850 12px 'Segoe UI',Arial,sans-serif;cursor:pointer}
+  .hp-tab.active{background:linear-gradient(180deg,#7c3aed,#6d28d9);border-color:#5b21b6;color:#fff;box-shadow:0 2px 7px rgba(109,40,217,.22)}
+  .hp-view{padding-bottom:22px}
+  .hp-kpis{display:grid;grid-template-columns:repeat(6,minmax(125px,1fr));gap:10px;padding:15px 18px;background:#f6f8fb}
+  .hp-kpi{background:#fff;border:1px solid #e1e7ef;border-radius:11px;padding:12px 13px;min-width:0}
+  .hp-kpi-label{font-size:9px;font-weight:950;color:#718096;text-transform:uppercase;letter-spacing:.55px}
+  .hp-kpi-value{font-size:19px;font-weight:950;color:#172033;margin-top:4px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hp-kpi-note{font-size:9.5px;color:#94a3b8;font-weight:700;margin-top:2px}
+  .hp-grid{display:grid;grid-template-columns:minmax(290px,.7fr) minmax(520px,1.3fr);gap:14px;padding:14px 18px 0}
+  .hp-box{background:#fff;border:1px solid #d8dee7;border-radius:12px;overflow:hidden;box-shadow:0 3px 12px rgba(15,23,42,.04)}
+  .hp-box-head{padding:12px 14px;border-bottom:1px solid #edf1f5;font-size:12px;font-weight:950;color:#1f2937}
+  .hp-table-wrap{overflow:auto}
+  .hp-table{width:100%;border-collapse:collapse;font-size:11px;min-width:520px}
+  .hp-table th{background:#edf2f7;color:#536273;font-size:9px;text-transform:uppercase;letter-spacing:.42px;font-weight:950;padding:9px 10px;text-align:left;border-bottom:1px solid #d8e0e9;white-space:nowrap}
+  .hp-table td{padding:9px 10px;border-bottom:1px solid #edf1f5;color:#263548;font-weight:650;white-space:nowrap}
+  .hp-table tbody tr:nth-child(even) td{background:#fafbfc}
+  .hp-num{text-align:right!important;font-variant-numeric:tabular-nums}
+  .hp-total td{font-weight:950;background:#f5f3ff!important;color:#4c1d95}
+  .hp-chart-card{margin:14px 18px 0;background:#fff;border:1px solid #d8dee7;border-radius:12px;padding:15px 16px;box-shadow:0 3px 12px rgba(15,23,42,.05)}
+  .hp-chart-title{font-size:13px;font-weight:950;color:#1f2937;margin-bottom:3px}
+  .hp-chart-sub{font-size:10.5px;color:#64748b;font-weight:650;margin-bottom:12px}
+  .hp-canvas-wrap{position:relative;height:430px}
+  .hp-empty{padding:55px 20px;text-align:center;color:#94a3b8;font-size:13px;font-weight:700}
+  @media(max-width:1200px){.hp-kpis{grid-template-columns:repeat(3,minmax(120px,1fr))}.hp-grid{grid-template-columns:1fr}}
+  @media(max-width:650px){.hp-kpis{grid-template-columns:repeat(2,minmax(110px,1fr));padding:10px}.hp-grid{padding:10px}.hp-chart-card{margin:10px}.hp-canvas-wrap{height:340px}.hp-head{padding:14px}.hp-tabs{padding:10px}}
+</style>
+
+<div id="panel-hupa" style="display:none;flex:1;overflow-y:auto;padding:18px 0 30px;background:linear-gradient(180deg,#f5f7fa 0%,#edf1f5 100%);font-family:'Segoe UI',Arial,sans-serif">
+  <div class="hp-shell hp-card">
+    <div class="hp-head">
+      <div class="hp-icon">&#128230;</div>
+      <div style="min-width:240px;flex:1">
+        <div class="hp-title">HuPa &ndash; TKT-Bewegungen</div>
+        <div class="hp-sub">Was ging wie viel wohin? Monatsmengen nach NMS, Malchow und S&amp;L / Zarrentin.</div>
+      </div>
+      <select id="hupa-year" class="hp-select" onchange="hupaRender()" title="Jahr"></select>
+      <span id="hupa-range" class="hp-badge"></span>
+    </div>
+    <div class="hp-tabs">
+      <button id="hupa-tab-general" class="hp-tab active" type="button" onclick="hupaSetTab('general')">Allgemeine Menge</button>
+      <button id="hupa-tab-curve" class="hp-tab" type="button" onclick="hupaSetTab('curve')">Kurve</button>
+    </div>
+
+    <div id="hupa-view-general" class="hp-view">
+      <div id="hupa-kpis" class="hp-kpis"></div>
+      <div class="hp-grid">
+        <div class="hp-box">
+          <div class="hp-box-head">Gesamt nach Ziel</div>
+          <div id="hupa-destination-table" class="hp-table-wrap"></div>
+        </div>
+        <div class="hp-box">
+          <div class="hp-box-head">Monatsübersicht</div>
+          <div id="hupa-month-table" class="hp-table-wrap"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="hupa-view-curve" class="hp-view" style="display:none">
+      <div class="hp-chart-card">
+        <div class="hp-chart-title">TKT-Verlauf über die Monate</div>
+        <div class="hp-chart-sub">Gesamt sowie einzeln nach NMS, Malchow und S&amp;L / Zarrentin.</div>
+        <div class="hp-canvas-wrap"><canvas id="hupa-chart-month"></canvas></div>
+      </div>
+      <div class="hp-chart-card" style="padding:0">
+        <div class="hp-box-head">Werte zur Kurve</div>
+        <div id="hupa-curve-table" class="hp-table-wrap"></div>
+      </div>
+    </div>
+  </div>
+</div>
+"""
+
+
+def _hupa_dashboard_js() -> str:
+    return r"""
+// ── HuPa TKT-Bewegungen ──────────────────────────────────────────────────────
+var HUPA_TAB = "general";
+var HUPA_MONTH_CHART = null;
+var HUPA_MONTH_NAMES = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+var HUPA_DESTS = ["NMS","Malchow","S&L / Zarrentin"];
+
+function hupaEsc(v){return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function hupaNum(v){return (Number(v)||0).toLocaleString("de-DE",{maximumFractionDigits:0});}
+function hupaPct(v){return (Number(v)||0).toLocaleString("de-DE",{minimumFractionDigits:1,maximumFractionDigits:1})+" %";}
+
+function hupaRows(){
+  var y = +(document.getElementById("hupa-year")||{value:0}).value || 0;
+  return (HUPA_DATA||[]).filter(function(r){return !y || +r.jahr===y;});
+}
+
+function hupaAggregate(rows){
+  var months = {};
+  var dest = {"NMS":0,"Malchow":0,"S&L / Zarrentin":0};
+  (rows||[]).forEach(function(r){
+    var m=+r.monat||0, z=String(r.ziel||"Sonstige"), n=Number(r.tkt)||0;
+    if(!months[m]) months[m]={month:m,"NMS":0,"Malchow":0,"S&L / Zarrentin":0,total:0};
+    if(months[m][z] == null) months[m][z]=0;
+    months[m][z]+=n; months[m].total+=n;
+    if(dest[z] == null) dest[z]=0;
+    dest[z]+=n;
+  });
+  return {months:months,dest:dest,total:Object.keys(dest).reduce(function(a,k){return a+(Number(dest[k])||0);},0)};
+}
+
+function hupaMonthRows(agg){
+  return Object.keys(agg.months).map(Number).filter(function(m){return m>=1&&m<=12;}).sort(function(a,b){return a-b;}).map(function(m){return agg.months[m];});
+}
+
+function hupaTable(monthRows){
+  if(!monthRows.length) return '<div class="hp-empty">Keine HuPa-Daten für dieses Jahr vorhanden.</div>';
+  var html='<table class="hp-table"><thead><tr><th>Monat</th><th class="hp-num">NMS</th><th class="hp-num">Malchow</th><th class="hp-num">S&amp;L / Zarrentin</th><th class="hp-num">Gesamt</th></tr></thead><tbody>';
+  var sums={n:0,m:0,z:0,t:0};
+  monthRows.forEach(function(r){
+    var n=Number(r["NMS"]||0), ma=Number(r["Malchow"]||0), z=Number(r["S&L / Zarrentin"]||0), t=Number(r.total||0);
+    sums.n+=n;sums.m+=ma;sums.z+=z;sums.t+=t;
+    html+='<tr><td><b>'+HUPA_MONTH_NAMES[r.month-1]+'</b></td><td class="hp-num">'+hupaNum(n)+'</td><td class="hp-num">'+hupaNum(ma)+'</td><td class="hp-num">'+hupaNum(z)+'</td><td class="hp-num"><b>'+hupaNum(t)+'</b></td></tr>';
+  });
+  html+='<tr class="hp-total"><td>Gesamt</td><td class="hp-num">'+hupaNum(sums.n)+'</td><td class="hp-num">'+hupaNum(sums.m)+'</td><td class="hp-num">'+hupaNum(sums.z)+'</td><td class="hp-num">'+hupaNum(sums.t)+'</td></tr></tbody></table>';
+  return html;
+}
+
+function hupaRenderGeneral(rows, agg, monthRows){
+  var total=Number(agg.total)||0;
+  var strongest=monthRows.slice().sort(function(a,b){return b.total-a.total;})[0];
+  var avg=monthRows.length ? total/monthRows.length : 0;
+  var kpis=[
+    ["TKT gesamt",hupaNum(total),(monthRows.length||0)+" Monate"],
+    ["Malchow",hupaNum(agg.dest["Malchow"]||0),total?hupaPct((agg.dest["Malchow"]||0)/total*100):"0,0 %"],
+    ["NMS",hupaNum(agg.dest["NMS"]||0),total?hupaPct((agg.dest["NMS"]||0)/total*100):"0,0 %"],
+    ["S&L / Zarrentin",hupaNum(agg.dest["S&L / Zarrentin"]||0),total?hupaPct((agg.dest["S&L / Zarrentin"]||0)/total*100):"0,0 %"],
+    ["Ø pro Monat",hupaNum(avg),"aktive Monate"],
+    ["Stärkster Monat",strongest?HUPA_MONTH_NAMES[strongest.month-1]:"–",strongest?hupaNum(strongest.total)+" TKT":"keine Daten"]
+  ];
+  var k=document.getElementById("hupa-kpis");
+  if(k) k.innerHTML=kpis.map(function(x){return '<div class="hp-kpi"><div class="hp-kpi-label">'+hupaEsc(x[0])+'</div><div class="hp-kpi-value">'+hupaEsc(x[1])+'</div><div class="hp-kpi-note">'+hupaEsc(x[2])+'</div></div>';}).join('');
+
+  var dhtml='<table class="hp-table"><thead><tr><th>Ziel</th><th class="hp-num">TKT</th><th class="hp-num">Anteil</th></tr></thead><tbody>';
+  var destRows=Object.keys(agg.dest).map(function(z){return [z,Number(agg.dest[z])||0];}).filter(function(x){return x[1]>0;}).sort(function(a,b){return b[1]-a[1];});
+  destRows.forEach(function(x){dhtml+='<tr><td><b>'+hupaEsc(x[0])+'</b></td><td class="hp-num">'+hupaNum(x[1])+'</td><td class="hp-num">'+(total?hupaPct(x[1]/total*100):'0,0 %')+'</td></tr>';});
+  dhtml+='<tr class="hp-total"><td>Gesamt</td><td class="hp-num">'+hupaNum(total)+'</td><td class="hp-num">100,0 %</td></tr></tbody></table>';
+  var dt=document.getElementById("hupa-destination-table"); if(dt) dt.innerHTML=destRows.length?dhtml:'<div class="hp-empty">Keine Daten vorhanden.</div>';
+  var mt=document.getElementById("hupa-month-table"); if(mt) mt.innerHTML=hupaTable(monthRows);
+}
+
+function hupaRenderCurve(agg, monthRows){
+  var ct=document.getElementById("hupa-curve-table"); if(ct) ct.innerHTML=hupaTable(monthRows);
+  var canvas=document.getElementById("hupa-chart-month");
+  if(!canvas || typeof Chart==="undefined") return;
+  if(HUPA_MONTH_CHART){HUPA_MONTH_CHART.destroy();HUPA_MONTH_CHART=null;}
+  if(!monthRows.length) return;
+  HUPA_MONTH_CHART=new Chart(canvas.getContext("2d"),{
+    type:"line",
+    data:{
+      labels:monthRows.map(function(r){return HUPA_MONTH_NAMES[r.month-1];}),
+      datasets:[
+        {label:"Gesamt",data:monthRows.map(function(r){return r.total||0;}),borderColor:"#111827",backgroundColor:"#111827",borderWidth:3,pointRadius:4,pointHoverRadius:6,tension:.25},
+        {label:"Malchow",data:monthRows.map(function(r){return r["Malchow"]||0;}),borderColor:"#7c3aed",backgroundColor:"#7c3aed",borderWidth:2,pointRadius:3,tension:.25},
+        {label:"NMS",data:monthRows.map(function(r){return r["NMS"]||0;}),borderColor:"#d97706",backgroundColor:"#d97706",borderWidth:2,pointRadius:3,tension:.25},
+        {label:"S&L / Zarrentin",data:monthRows.map(function(r){return r["S&L / Zarrentin"]||0;}),borderColor:"#15803d",backgroundColor:"#15803d",borderWidth:2,pointRadius:3,tension:.25}
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
+      plugins:{legend:{position:"bottom",labels:{usePointStyle:true,boxWidth:9,font:{weight:"700"}}},tooltip:{callbacks:{label:function(c){return c.dataset.label+": "+hupaNum(c.raw)+" TKT";}}}},
+      scales:{y:{beginAtZero:true,title:{display:true,text:"TKT"},ticks:{callback:function(v){return hupaNum(v);}}},x:{grid:{display:false}}}
+    }
+  });
+}
+
+function hupaRender(){
+  var rows=hupaRows(), agg=hupaAggregate(rows), monthRows=hupaMonthRows(agg);
+  hupaRenderGeneral(rows,agg,monthRows);
+  if(HUPA_TAB==="curve") requestAnimationFrame(function(){hupaRenderCurve(agg,monthRows);});
+  var badge=document.getElementById("hupa-range");
+  if(badge){
+    if(monthRows.length) badge.textContent=HUPA_MONTH_NAMES[monthRows[0].month-1]+"–"+HUPA_MONTH_NAMES[monthRows[monthRows.length-1].month-1]+" · "+hupaNum(agg.total)+" TKT";
+    else badge.textContent="Keine Daten";
+  }
+}
+
+function hupaSetTab(tab){
+  HUPA_TAB=tab==="curve"?"curve":"general";
+  var g=document.getElementById("hupa-view-general"), c=document.getElementById("hupa-view-curve");
+  var bg=document.getElementById("hupa-tab-general"), bc=document.getElementById("hupa-tab-curve");
+  if(g) g.style.display=HUPA_TAB==="general"?"block":"none";
+  if(c) c.style.display=HUPA_TAB==="curve"?"block":"none";
+  if(bg) bg.className="hp-tab"+(HUPA_TAB==="general"?" active":"");
+  if(bc) bc.className="hp-tab"+(HUPA_TAB==="curve"?" active":"");
+  hupaRender();
+}
+
+function hupaInit(){
+  var sel=document.getElementById("hupa-year");
+  if(!sel) return;
+  var years=Array.from(new Set((HUPA_DATA||[]).map(function(r){return +r.jahr||0;}).filter(Boolean))).sort(function(a,b){return b-a;});
+  var current=+sel.value||0;
+  sel.innerHTML=years.map(function(y){return '<option value="'+y+'">'+y+'</option>';}).join('');
+  if(current && years.indexOf(current)>=0) sel.value=String(current);
+  else if(years.length) sel.value=String(years[0]);
+  hupaSetTab(HUPA_TAB||"general");
+}
+// ── /HuPa TKT-Bewegungen ─────────────────────────────────────────────────────
+"""
+
+
+
 def _render_dashboard_html(
     *,
     logo_data_url: str,
@@ -6387,6 +6609,8 @@ def _render_dashboard_html(
     fw_graph_js_code: str,
     tank_panels_html: str,
     tank_js_code: str,
+    hupa_panels_html: str,
+    hupa_js_code: str,
     verstoss_js_code: str,
     sped_js_code: str,
     fabew_js_code: str,
@@ -6571,6 +6795,7 @@ iframe.active{{display:block}}
   <button class="nav-btn" id="btn-zulage" onclick="showArea('zulage')">&#128176; Zulagen</button>
   <button class="nav-btn" id="btn-spesen" onclick="showArea('spesen')">&#128181; Spesen</button>
   <button class="nav-btn" id="btn-gk" onclick="showArea('gk')">&#127970; Gro&#223;kunden</button>
+  <button class="nav-btn" id="btn-hupa" onclick="showArea('hupa')">&#128230; HuPa</button>
   <div class="nav-dd" id="dd-sped">
     <button class="nav-dd-btn" id="btn-sped" onclick="ddToggle('sped',event)">
       &#128666; Spediteure <span class="dd-arrow">&#9660;</span>
@@ -6748,6 +6973,7 @@ document.addEventListener('keydown',function(e){{if(e.key==='Escape')closeBuildI
   </div>
 
 {tank_panels_html}
+{hupa_panels_html}
 
   <div id="panel-tel" style="display:none;flex:1;overflow-y:auto;font-family:'Segoe UI',Arial,sans-serif;">
     <style>
@@ -7596,6 +7822,7 @@ var EMBEDDED_DATA_B64 = [
 // Sichere Startwerte, bis der komprimierte Datenblock entpackt ist.
 var FAHRZEUGWAESCHE_DATA = [];
 var TANK_DATA = [];
+var HUPA_DATA = [];
 var TEL_DATA = [];
 var SAM_DATA = [];
 var FA_DATA = [];
@@ -7617,6 +7844,7 @@ function loadEmbeddedData() {{
     var data = JSON.parse(raw);
     FAHRZEUGWAESCHE_DATA = data.fahrzeugwaesche || [];
     TANK_DATA = data.tanken || [];
+    HUPA_DATA = data.hupa || [];
     TEL_DATA = data.telefon || [];
     SAM_DATA = data.samstag || [];
     FA_DATA = data.fahrer || [];
@@ -7789,6 +8017,10 @@ function showArea(s) {{
   if(tankPanel) tankPanel.style.display = (s==="tank") ? "block" : "none";
   var tankGraphPanel = document.getElementById("panel-tank-graph");
   if(tankGraphPanel) tankGraphPanel.style.display = (s==="tank_graph") ? "block" : "none";
+  var hupaPanel = document.getElementById("panel-hupa");
+  if(hupaPanel) hupaPanel.style.display = (s==="hupa") ? "flex" : "none";
+  var hupaBtn = document.getElementById("btn-hupa");
+  if(hupaBtn) hupaBtn.className = "nav-btn" + (s==="hupa" ? " active" : "");
   telPanel.style.display = (s==="tel") ? "block" : "none";
   if(samPanel)      samPanel.style.display      = (s==="sam" || s==="sam_graph") ? "block" : "none";
   var faPanel = document.getElementById("panel-fa");
@@ -7825,6 +8057,10 @@ function showArea(s) {{
   if(s==="tank_graph") {{
     if(tankGraphPanel && !tankGraphPanel.dataset.loaded) {{ tankInitGraph(); tankGraphPanel.dataset.loaded="1"; }}
     else {{ tankRenderGraph(); }}
+  }}
+  if(s==="hupa") {{
+    if(hupaPanel && !hupaPanel.dataset.loaded) {{ hupaInit(); hupaPanel.dataset.loaded="1"; }}
+    else {{ hupaRender(); }}
   }}
   if(typeof buildVzDdMenu === "function") buildVzDdMenu();
   if(s==="tel" && !telPanel.dataset.loaded) {{ telRender(""); telPanel.dataset.loaded="1"; }}
@@ -8172,6 +8408,7 @@ function fwExportPdf() {{
 {wash_ranking_js_code}
 {fw_graph_js_code}
 {tank_js_code}
+{hupa_js_code}
 // Zusatzdaten wurden oben komprimiert eingebettet und durch loadEmbeddedData() geladen.
 var ZULAGE_XLSX_SONDER      = "{zulage_xlsx_sonder}";
 var ZULAGE_XLSX_FUENGERS    = "{zulage_xlsx_fuengers}";
@@ -11370,7 +11607,7 @@ function samToggle(el) {{
 </html>"""
 
 
-def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None) -> str:
+def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", hupa_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None) -> str:
     _combine_started = time.perf_counter()
     try:
         _logo_up = st.session_state.get("g_logo")
@@ -11391,6 +11628,8 @@ def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa
     fw_graph_js_code = js_parts['fw_graph']
     tank_panels_html = _tank_panels_html()
     tank_js_code = _tank_dashboard_js()
+    hupa_panels_html = _hupa_panels_html()
+    hupa_js_code = _hupa_dashboard_js()
     verstoss_js_code = js_parts['verstoss']
     knapp_js_code = js_parts['knapp']
     sped_js_code = js_parts['sped']
@@ -11436,6 +11675,7 @@ def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa
     embedded_data_js = _build_embedded_data_js(
         fahrzeugwaesche_json=fahrzeugwaesche_json,
         tanken_json=tanken_json,
+        hupa_json=hupa_json,
         tel_json=tel_json,
         sam_json=sam_json,
         fa_json=fa_json,
@@ -11474,6 +11714,8 @@ def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa
         fw_graph_js_code=fw_graph_js_code,
         tank_panels_html=tank_panels_html,
         tank_js_code=tank_js_code,
+        hupa_panels_html=hupa_panels_html,
+        hupa_js_code=hupa_js_code,
         verstoss_js_code=verstoss_js_code,
         sped_js_code=sped_js_code,
         fabew_js_code=fabew_js_code,
@@ -12749,6 +12991,170 @@ def parse_verstoss_csv(uploaded_file) -> str:
     }, ensure_ascii=False)
 
 
+
+def parse_hupa_excel(uploaded_files) -> str:
+    """Liest HuPa-TKT-Monatsdateien (NMS / MAL / ZAR) ein.
+
+    Wenn der Dateiname einen Zeitraum wie 202601 oder 2026 01 enthält, werden
+    nur Datensätze dieses Monats übernommen. Dadurch werden versehentlich in
+    einer Monatsmappe verbliebene Altzeilen nicht doppelt gezählt.
+    """
+    import openpyxl as _opxl
+    from openpyxl.utils.datetime import from_excel as _from_excel
+
+    def _norm(value) -> str:
+        value = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+        return re.sub(r"[^a-z0-9]+", "", value.strip().lower())
+
+    def _clean(value) -> str:
+        if value is None:
+            return ""
+        value = str(value).replace("\xa0", " ").strip()
+        if value.lower() in {"nan", "none"}:
+            return ""
+        return re.sub(r"\s+", " ", value)
+
+    def _number(value) -> float:
+        if value in (None, ""):
+            return 0.0
+        if isinstance(value, (int, float)):
+            return float(value)
+        s = _clean(value).replace(" ", "")
+        if not s:
+            return 0.0
+        if "," in s and "." in s:
+            s = s.replace(".", "").replace(",", ".")
+        elif "," in s:
+            s = s.replace(",", ".")
+        try:
+            return float(s)
+        except Exception:
+            return 0.0
+
+    def _date(value, epoch):
+        dt = None
+        if isinstance(value, datetime.datetime):
+            dt = value
+        elif isinstance(value, datetime.date):
+            dt = datetime.datetime.combine(value, datetime.time())
+        elif isinstance(value, (int, float)) and 20000 <= float(value) <= 80000:
+            try:
+                dt = _from_excel(float(value), epoch)
+            except Exception:
+                dt = None
+        if dt is None:
+            s = _clean(value)
+            for fmt in ("%d.%m.%Y", "%d/%m/%Y", "%Y-%m-%d"):
+                try:
+                    dt = datetime.datetime.strptime(s[:10], fmt)
+                    break
+                except Exception:
+                    pass
+        if dt is None:
+            return None
+        return dt
+
+    def _source_period(name: str):
+        # Typische Namen: 202601_TKT..., 202606 TKT..., 2026-06 TKT...
+        base = Path(str(name or "")).name
+        m = re.search(r"(?:^|\D)(20\d{2})[ _.-]?([01]\d)(?:\D|$)", base)
+        if not m:
+            return None
+        year, month = int(m.group(1)), int(m.group(2))
+        return (year, month) if 1 <= month <= 12 else None
+
+    def _target(sheet_name: str, amount_header: str) -> str:
+        key = _norm(sheet_name + " " + amount_header)
+        if "nms" in key:
+            return "NMS"
+        if "mal" in key or "malchow" in key:
+            return "Malchow"
+        if "zar" in key or "sl" in key or "zarrentin" in key:
+            return "S&L / Zarrentin"
+        return _clean(sheet_name) or "Sonstige"
+
+    rows = []
+    for uploaded_file in uploaded_files or []:
+        payload = read_upload_bytes(uploaded_file)
+        if not payload:
+            continue
+        source_name = getattr(uploaded_file, "name", "") or ""
+        source_period = _source_period(source_name)
+        try:
+            wb = _opxl.load_workbook(io.BytesIO(payload), data_only=True, read_only=True)
+        except Exception as exc:
+            raise ValueError(f"HuPa-Datei '{source_name}' konnte nicht gelesen werden: {exc}") from exc
+
+        try:
+            for ws in wb.worksheets:
+                mapping = None
+                amount_header = ""
+                empty_streak = 0
+                data_started = False
+
+                for row_no, values in enumerate(ws.iter_rows(values_only=True), 1):
+                    values = tuple(values or ())
+                    if mapping is None:
+                        if row_no > 20:
+                            break
+                        normalized = [_norm(v) for v in values]
+                        date_idx = next((i for i, k in enumerate(normalized) if k == "datum" or k.startswith("datum")), None)
+                        amount_idx = next((i for i, k in enumerate(normalized) if "menge" in k and "tkt" in k), None)
+                        if date_idx is None or amount_idx is None:
+                            continue
+                        mapping = {
+                            "datum": date_idx,
+                            "menge": amount_idx,
+                            "name": next((i for i, k in enumerate(normalized) if k == "name"), None),
+                            "vorname": next((i for i, k in enumerate(normalized) if k == "vorname"), None),
+                            "kennzeichen": next((i for i, k in enumerate(normalized) if "kennzeichen" in k), None),
+                        }
+                        amount_header = _clean(values[amount_idx] if amount_idx < len(values) else "")
+                        continue
+
+                    if not any(v not in (None, "") for v in values):
+                        empty_streak += 1
+                        if data_started and empty_streak >= 50:
+                            break
+                        continue
+                    empty_streak = 0
+
+                    def get(key):
+                        idx = mapping.get(key)
+                        return values[idx] if idx is not None and idx < len(values) else None
+
+                    dt = _date(get("datum"), wb.epoch)
+                    menge = _number(get("menge"))
+                    if dt is None or menge <= 0:
+                        continue
+                    if source_period and (dt.year, dt.month) != source_period:
+                        continue
+                    data_started = True
+                    ziel = _target(ws.title, amount_header)
+                    name = _clean(get("name"))
+                    vorname = _clean(get("vorname"))
+                    fahrer = " ".join(x for x in (name, vorname) if x).strip()
+                    rows.append({
+                        "datum": dt.strftime("%d.%m.%Y"),
+                        "date_iso": dt.strftime("%Y-%m-%d"),
+                        "jahr": dt.year,
+                        "monat": dt.month,
+                        "ziel": ziel,
+                        "tkt": round(menge, 3),
+                        "fahrer": fahrer,
+                        "kennzeichen": _clean(get("kennzeichen")),
+                        "quelle": source_name,
+                        "blatt": ws.title,
+                    })
+        finally:
+            try:
+                wb.close()
+            except Exception:
+                pass
+
+    rows.sort(key=lambda r: (r.get("date_iso", ""), r.get("ziel", ""), r.get("fahrer", "")))
+    return json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+
 def parse_tanken_excel(uploaded_files) -> str:
     """Liest mehrere monatliche Tank-Excel-Dateien speicherschonend ein.
 
@@ -13670,6 +14076,7 @@ def _build_generation_metadata(ready_instances: list, generated_at: datetime.dat
     tel = _safe_state_json("tel_json", [])
     wash = _safe_state_json("fahrzeugwaesche_json", [])
     tank = _safe_state_json("tanken_json", [])
+    hupa = _safe_state_json("hupa_json", [])
     timerec = _safe_state_json("timerec_json", {})
     violations = _safe_state_json("verstoss_json", {})
     expenses = _safe_state_json("spesen_json", {})
@@ -13686,6 +14093,7 @@ def _build_generation_metadata(ready_instances: list, generated_at: datetime.dat
         {"label": "Telefon / Fachberater", "value": str(len(tel) if isinstance(tel, list) else 0), "detail": "Einträge"},
         {"label": "Fahrzeugwaesche", "value": str(len(wash) if isinstance(wash, list) else 0), "detail": "Datensaetze"},
         {"label": "Tanken", "value": str(len(tank) if isinstance(tank, list) else 0), "detail": f"{sum(float(r.get('menge_liter', 0) or 0) for r in tank):,.0f} Liter" if isinstance(tank, list) else "0 Liter"},
+        {"label": "HuPa", "value": str(len(hupa) if isinstance(hupa, list) else 0), "detail": f"{sum(float(r.get('tkt', 0) or 0) for r in hupa):,.0f} TKT" if isinstance(hupa, list) else "0 TKT"},
         {"label": "Schichten / Tachograph", "value": str(shift_count), "detail": f"{len(timerec) if isinstance(timerec, dict) else 0} Fahrer"},
         {"label": "Verstöße", "value": str(violations.get("total_violations", 0) if isinstance(violations, dict) else 0), "detail": f"{len(violations.get('drivers', [])) if isinstance(violations, dict) else 0} Fahrer"},
         {"label": "Spesen", "value": str(expenses.get("total_rows", 0) if isinstance(expenses, dict) else 0), "detail": f"{len(expenses.get('drivers', [])) if isinstance(expenses, dict) else 0} Fahrer"},
@@ -13727,7 +14135,7 @@ def _estimate_export_size(ready_instances: list) -> int:
     extra_chars = 0
     for key in (
         "tel_json", "sam_json", "fa_json", "zulage_json",
-        "drittkunden_json", "fahrzeugwaesche_json", "tanken_json", "verstoss_json",
+        "drittkunden_json", "fahrzeugwaesche_json", "tanken_json", "hupa_json", "verstoss_json",
         "spesen_json", "grosskunden_json", "timerec_json",
         "spediteure_json", "fahrerbewertung_json",
     ):
@@ -14360,6 +14768,30 @@ with tab_extra:
             spinner_text="Verarbeite Tank-Monatsdateien ...",
         )
 
+        def _hupa_summary(ups):
+            rows = json.loads(st.session_state.get("hupa_json", "[]") or "[]")
+            total = sum(float(r.get("tkt", 0) or 0) for r in rows)
+            years = sorted({int(r.get("jahr", 0) or 0) for r in rows if int(r.get("jahr", 0) or 0)})
+            months = sorted({(int(r.get("jahr", 0) or 0), int(r.get("monat", 0) or 0)) for r in rows if int(r.get("monat", 0) or 0)})
+            dest = {}
+            for r in rows:
+                z = str(r.get("ziel", "") or "")
+                dest[z] = dest.get(z, 0.0) + float(r.get("tkt", 0) or 0)
+            parts = [f"{z}: {v:,.0f} TKT" for z, v in sorted(dest.items(), key=lambda kv: kv[1], reverse=True)]
+            text = f"{len(ups)} Datei(en), {len(months)} Monate, {total:,.0f} TKT gesamt"
+            if years:
+                text += " · " + ", ".join(str(y) for y in years)
+            if parts:
+                text += " · " + " | ".join(parts)
+            return text.replace(",", "X").replace(".", ",").replace("X", ".")
+
+        _extra_multi_upload(
+            "HuPa TKT-Bewegungen (Excel-Monatsdateien)", ["xlsx"], "hupa",
+            {"hupa_json": parse_hupa_excel},
+            summary_fn=_hupa_summary,
+            spinner_text="Verarbeite HuPa-TKT-Monatsdateien ...",
+        )
+
     with col_r:
         def _spesen_summary(j):
             sp     = json.loads(j or "{}")
@@ -14526,6 +14958,7 @@ with tab_dl:
                         zulage_xlsx_drittkunden=zulage_xlsx_drittkunden,
                         fahrzeugwaesche_json=st.session_state.get("fahrzeugwaesche_json", "[]"),
                         tanken_json=st.session_state.get("tanken_json", "[]"),
+                        hupa_json=st.session_state.get("hupa_json", "[]"),
                         verstoss_json=st.session_state.get("verstoss_json", '{"drivers":[],"total_violations":0}'),
                         spesen_json=st.session_state.get("spesen_json", '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}'),
                         grosskunden_json=st.session_state.get("grosskunden_json", "[]"),
