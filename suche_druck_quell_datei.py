@@ -68,9 +68,9 @@ _boot_log("03 Standardimporte bereit; pandas wird verzögert geladen")
 st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
-APP_CACHE_VERSION = "hupa-dashboard-2026-09-11-v52-yearcompare"
-EXTRA_CACHE_VERSION = "extra-parser-2026-09-11-v52-hupa-yearcompare"
-APP_DISPLAY_VERSION = "52"
+APP_CACHE_VERSION = "hupa-dashboard-2026-09-11-v53-scrollfix"
+EXTRA_CACHE_VERSION = "extra-parser-2026-09-11-v53-scrollfix"
+APP_DISPLAY_VERSION = "53"
 APP_DISPLAY_NAME = "NFC Generator"
 
 
@@ -6376,11 +6376,15 @@ def _hupa_panels_html() -> str:
     """HuPa TKT-Bewegungen: Mengen, Jahresvergleich und Monatskurven."""
     return r"""
 <style>
-  #panel-hupa{--hp:#6d28d9;--hp2:#9333ea;--orange:#d97706;--green:#15803d;--rose:#be123c;--ink:#172033;--muted:#64748b}
+  #panel-hupa{--hp:#6d28d9;--hp2:#9333ea;--orange:#d97706;--green:#15803d;--rose:#be123c;--ink:#172033;--muted:#64748b;min-height:0;overflow-y:auto!important;overflow-x:hidden;scrollbar-gutter:stable;overscroll-behavior:contain}
+  #panel-hupa::-webkit-scrollbar{width:11px}
+  #panel-hupa::-webkit-scrollbar-track{background:#f1f5f9}
+  #panel-hupa::-webkit-scrollbar-thumb{background:#c4b5fd;border:3px solid #f1f5f9;border-radius:999px}
+  #panel-hupa::-webkit-scrollbar-thumb:hover{background:#a78bfa}
   #btn-hupa{background:linear-gradient(180deg,#faf5ff 0%,#f3e8ff 100%);border-color:#d8b4fe;color:#6b21a8;font-weight:900}
   #btn-hupa:hover{background:linear-gradient(180deg,#f3e8ff 0%,#e9d5ff 100%);border-color:#c084fc;color:#581c87}
   #btn-hupa.active{background:linear-gradient(180deg,#7e22ce 0%,#6b21a8 100%);border-color:#581c87;color:#fff;box-shadow:0 3px 10px rgba(107,33,168,.28)}
-  .hp-shell{width:100%;max-width:1728px;margin:0 auto}
+  .hp-shell{width:100%;max-width:1728px;margin:0 auto 18px;flex:none}
   .hp-card{background:#fff;border:1px solid #d8dee7;border-radius:14px;box-shadow:0 5px 20px rgba(76,29,149,.10);overflow:hidden}
   .hp-head{display:flex;align-items:center;gap:13px;padding:17px 20px;background:linear-gradient(110deg,#faf5ff 0%,#fff7ed 48%,#f0fdf4 100%);border-bottom:1px solid #e8e0ef;flex-wrap:wrap}
   .hp-icon{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#9333ea,#6d28d9 55%,#4c1d95);color:#fff;display:flex;align-items:center;justify-content:center;font-size:21px;box-shadow:0 6px 15px rgba(109,40,217,.27);flex-shrink:0}
@@ -6440,7 +6444,7 @@ def _hupa_panels_html() -> str:
   @media(max-width:650px){.hp-kpis{grid-template-columns:repeat(2,minmax(110px,1fr));padding:10px}.hp-grid{padding:10px}.hp-chart-card{margin:10px}.hp-curve-controls{margin:10px}.hp-head{padding:14px}.hp-tabs{padding:10px}}
 </style>
 
-<div id="panel-hupa" style="display:none;flex:1;overflow-y:auto;padding:18px 0 30px;background:linear-gradient(135deg,#f6f0ff 0%,#f7f7f9 42%,#fff5e8 72%,#effbf3 100%);font-family:'Segoe UI',Arial,sans-serif">
+<div id="panel-hupa" style="display:none;flex:1;min-height:0;height:100%;overflow-y:auto!important;overflow-x:hidden;scrollbar-gutter:stable;padding:18px 0 38px;background:linear-gradient(135deg,#f6f0ff 0%,#f7f7f9 42%,#fff5e8 72%,#effbf3 100%);font-family:'Segoe UI',Arial,sans-serif">
   <div class="hp-shell hp-card">
     <div class="hp-head">
       <div class="hp-icon">&#128230;</div>
@@ -6919,7 +6923,7 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 .build-info-pill.error{{background:#fee2e2;color:#991b1b}}
 .build-info-pill.info{{background:#e2e8f0;color:#475569}}
 @media(max-width:720px){{.build-info-cards{{grid-template-columns:repeat(2,minmax(0,1fr))}}.topnav-stamp{{display:none}}}}
-.frame-wrap{{height:calc(100vh - 56px);display:flex;flex-direction:column}}
+.frame-wrap{{height:calc(100vh - 56px);min-height:0;display:flex;flex-direction:column;overflow:hidden}}
 iframe{{flex:1;width:100%;border:none;display:none}}
 iframe.active{{display:block}}
 .vz-day-btn{{padding:7px 14px;border:1.5px solid #9db9d5;background:#fff;color:#1e6091;border-radius:7px;cursor:pointer;font-weight:800;font-size:12px;font-family:'Segoe UI',Arial,sans-serif;transition:all .15s;letter-spacing:.1px}}
@@ -6987,7 +6991,6 @@ iframe.active{{display:block}}
     <div class="dd-menu" id="ddmenu-infos"></div>
   </div>
   </div>
-  <span class="topnav-stamp">v{APP_DISPLAY_VERSION} &middot; {last_updated}</span>
 </nav>
 
 <div class="build-info-overlay" id="buildInfoOverlay" onclick="buildInfoBackdrop(event)">
@@ -8231,6 +8234,7 @@ function showArea(s) {{
     else {{ tankRenderGraph(); }}
   }}
   if(s==="hupa") {{
+    if(hupaPanel) hupaPanel.scrollTop = 0;
     if(hupaPanel && !hupaPanel.dataset.loaded) {{ hupaInit(); hupaPanel.dataset.loaded="1"; }}
     else {{ hupaRender(); }}
   }}
@@ -14679,7 +14683,7 @@ _boot_log("06 Funktionsdefinitionen geladen; UI-Aufbau beginnt")
 # EMBEDDED_PDF_DOCUMENTS wurde fuer Cloud-Stabilitaet nach nfc_assets ausgelagert.
 # endregion
 
-st.title(f"{APP_DISPLAY_NAME} · Version {APP_DISPLAY_VERSION}")
+st.title(APP_DISPLAY_NAME)
 _boot_log("07 Titel gerendert")
 st.caption("Modularer Einzeldatei-Generator mit speicherschonender Dateiprüfung und sicherem Export")
 
@@ -15227,17 +15231,11 @@ with tab_dl:
             week_names = generated_meta.get("week_names", []) or []
 
             st.markdown("##### Generierungsstatistik")
-            _g1, _g2, _g3, _g4 = st.columns(4)
-            _g1.metric("Version", f"v{APP_DISPLAY_VERSION}")
-            _g2.metric("HTML-Datei", _human_size(html_size))
-            _g3.metric("Erzeugungszeit", f"{generation_seconds:.2f} s")
-            _g4.metric("Eingebettete PDFs", f"{pdf_count} · {_human_size(pdf_bytes)}")
-            if isinstance(created_at, datetime.datetime):
-                created_label = created_at.strftime("%d.%m.%Y %H:%M:%S")
-            else:
-                created_label = str(created_at or "-")
+            _g1, _g2, _g3 = st.columns(3)
+            _g1.metric("HTML-Datei", _human_size(html_size))
+            _g2.metric("Erzeugungszeit", f"{generation_seconds:.2f} s")
+            _g3.metric("Eingebettete PDFs", f"{pdf_count} · {_human_size(pdf_bytes)}")
             st.caption(
-                f"Datenstand: {created_label} · "
                 f"{len(week_names)} Woche(n): {', '.join(week_names)}"
             )
         else:
