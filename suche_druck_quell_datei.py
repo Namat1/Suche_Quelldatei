@@ -68,9 +68,9 @@ _boot_log("03 Standardimporte bereit; pandas wird verzögert geladen")
 st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
-APP_CACHE_VERSION = "waschen-tanken-dashboard-2026-09-04-v50-reisekosten-vorschau"
-EXTRA_CACHE_VERSION = "extra-parser-2026-09-04-v50-reisekosten-vorschau"
-APP_DISPLAY_VERSION = "50"
+APP_CACHE_VERSION = "waschen-tanken-dashboard-2026-09-11-v51-modern-search"
+EXTRA_CACHE_VERSION = "extra-parser-2026-09-11-v51-modern-search"
+APP_DISPLAY_VERSION = "51"
 APP_DISPLAY_NAME = "NFC Generator"
 
 
@@ -2197,6 +2197,193 @@ def _patch_suche_template_optik(template: str) -> str:
     return template
 
 
+def _patch_suche_template_modern_2026(template: str) -> str:
+    """Modernisiert ausschliesslich die Optik der Kundensuche.
+
+    Die bestehenden IDs und Klassen bleiben unangetastet, damit Suche,
+    Tour-Uebersicht, Druck und alle Datenfunktionen unveraendert arbeiten.
+    """
+    css = r"""
+<style id="nfc-search-modern-2026">
+:root{
+  --modern-accent:#6650a4;
+  --modern-accent-dark:#4f378b;
+  --modern-accent-soft:#f1edff;
+  --modern-bg:#f7f6f9;
+  --modern-surface:#ffffff;
+  --modern-line:#e6e1e9;
+  --modern-text:#211f26;
+  --modern-muted:#6f6a73;
+  --modern-shadow:0 8px 28px rgba(33,31,38,.07);
+}
+
+html,body{
+  background:var(--modern-bg) !important;
+  color:var(--modern-text) !important;
+  font-family:'Inter Tight','Segoe UI',Arial,sans-serif !important;
+  font-size:14px;
+}
+
+.header{
+  min-height:58px;
+  padding:11px clamp(16px,2.3vw,34px) !important;
+  background:rgba(255,255,255,.94) !important;
+  border-bottom:1px solid var(--modern-line) !important;
+  box-shadow:0 1px 0 rgba(33,31,38,.02) !important;
+}
+.brand-logo{height:34px !important}
+
+/* Suche: beide vorhandenen Sucharten bleiben erhalten, wirken aber wie ein System. */
+#smartSearch,#keySearch,
+input[type="search"],input[type="text"]{
+  min-height:48px !important;
+  padding:0 16px !important;
+  border:1px solid #d8d2dc !important;
+  border-radius:13px !important;
+  background:#fff !important;
+  color:var(--modern-text) !important;
+  font:700 15px/1 'Inter Tight','Segoe UI',Arial,sans-serif !important;
+  box-shadow:0 2px 8px rgba(33,31,38,.035) !important;
+  outline:none !important;
+  transition:border-color .16s ease,box-shadow .16s ease,background .16s ease !important;
+}
+#smartSearch:hover,#keySearch:hover,
+input[type="search"]:hover,input[type="text"]:hover{
+  border-color:#bcb4c3 !important;
+}
+#smartSearch:focus,#keySearch:focus,
+input[type="search"]:focus,input[type="text"]:focus{
+  border-color:var(--modern-accent) !important;
+  box-shadow:0 0 0 4px rgba(102,80,164,.13) !important;
+}
+input::placeholder{color:#918a95 !important;font-weight:600 !important;opacity:1}
+
+button{
+  font-family:'Inter Tight','Segoe UI',Arial,sans-serif;
+  transition:background .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease,transform .16s ease;
+}
+button:focus-visible{
+  outline:3px solid rgba(102,80,164,.25) !important;
+  outline-offset:2px !important;
+}
+
+.table-section{
+  padding:14px clamp(12px,2vw,28px) 24px !important;
+}
+table{
+  border:1px solid var(--modern-line) !important;
+  border-radius:14px !important;
+  background:var(--modern-surface) !important;
+  box-shadow:var(--modern-shadow) !important;
+}
+thead th{
+  background:#f3f0f6 !important;
+  color:#625c67 !important;
+  border-color:var(--modern-line) !important;
+  font-size:10px !important;
+  font-weight:900 !important;
+  letter-spacing:.055em !important;
+  text-transform:uppercase !important;
+}
+tbody td{
+  padding:11px 12px !important;
+  background:#fff !important;
+  border-color:#eeeaf0 !important;
+  font-size:12px !important;
+  font-weight:600 !important;
+}
+tbody tr:hover td{background:#faf8fc !important}
+tbody tr+tr td{border-top:1px solid #eeeaf0 !important}
+
+.cell,.cell-stack{gap:6px !important}
+.cell-top{font-size:12.5px !important;line-height:1.3 !important;color:var(--modern-text) !important}
+.cell-sub{font-size:11px !important;line-height:1.3 !important;color:var(--modern-muted) !important}
+
+.tour-btn{
+  min-height:27px !important;
+  padding:5px 9px !important;
+  border-radius:8px !important;
+  background:var(--modern-accent-soft) !important;
+  border-color:#d5c9f4 !important;
+  color:var(--modern-accent-dark) !important;
+  font-size:10.5px !important;
+  box-shadow:none !important;
+}
+.tour-btn:hover{
+  background:#e7defc !important;
+  border-color:#b8a6e4 !important;
+  transform:translateY(-1px);
+}
+.notiz-badge{
+  border-radius:8px !important;
+  padding:5px 8px !important;
+  background:#fff7df !important;
+  border-color:#efd48b !important;
+  color:#765b13 !important;
+}
+.kundenart-chip{
+  min-height:27px !important;
+  border-radius:8px !important;
+  padding:5px 9px !important;
+  background:#f2effa !important;
+  border-color:#d5cbed !important;
+  color:#544079 !important;
+}
+.kundenart-chip.rampe{
+  background:#edf8f0 !important;
+  border-color:#b9dfc2 !important;
+  color:#28643a !important;
+}
+.kundenart-chip.kombi{
+  background:#fff6e5 !important;
+  border-color:#efd59a !important;
+  color:#785b16 !important;
+}
+
+.tour-summary,.tour-summary-wrap,#tourSummary{
+  border-radius:14px !important;
+}
+.print-btn,.summary-toggle-btn{
+  min-height:36px !important;
+  padding:8px 13px !important;
+  border-radius:10px !important;
+  border:1px solid #d7d0dd !important;
+  background:#fff !important;
+  color:#514b55 !important;
+  font-size:11px !important;
+  font-weight:800 !important;
+  box-shadow:0 2px 7px rgba(33,31,38,.04) !important;
+}
+.print-btn:hover,.summary-toggle-btn:hover{
+  background:#f5f1fa !important;
+  border-color:#bdaed0 !important;
+  color:var(--modern-accent-dark) !important;
+}
+
+@media(max-width:720px){
+  .header{min-height:52px;padding:9px 13px !important}
+  .brand-logo{height:30px !important}
+  #smartSearch,#keySearch,input[type="search"],input[type="text"]{
+    min-height:46px !important;
+    width:100% !important;
+    font-size:16px !important;
+  }
+  .table-section{padding:10px 8px 18px !important}
+  table{border-radius:11px !important;box-shadow:0 4px 18px rgba(33,31,38,.06) !important}
+  tbody td{padding:9px 8px !important}
+  .tour-btn,.kundenart-chip{min-height:29px !important}
+}
+
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto !important;transition:none !important}
+}
+</style>
+"""
+    if 'id="nfc-search-modern-2026"' not in template:
+        template = template.replace("</head>", css + "\n</head>", 1)
+    return template
+
+
 
 def _patch_druck_template_cleanup(template: str) -> str:
     """Entfernt Debug-console.log-Spam aus dem Druck-Template (#7).
@@ -2341,6 +2528,7 @@ def get_suche_template() -> str:
         _patch_suche_template_kundenart_absetzer_rampe,
         _patch_suche_template_multi_keys,
         _patch_suche_template_optik,
+        _patch_suche_template_modern_2026,
     ):
         tpl = patch(tpl)
     return tpl
@@ -6417,10 +6605,10 @@ def _render_dashboard_html(
 html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 .topnav{{
   height:56px;
-  background:linear-gradient(180deg,#eef2f6 0%,#dde4eb 100%);
+  background:rgba(255,255,255,.97);
   display:flex;align-items:center;padding:0 12px;gap:4px;
-  box-shadow:0 2px 10px rgba(15,23,42,.08);
-  border-bottom:1px solid #c5ced8;
+  box-shadow:0 2px 14px rgba(33,31,38,.055);
+  border-bottom:1px solid #e5e1e8;
   flex-shrink:0;
   overflow-x:auto;
   scrollbar-width:none;
@@ -6441,9 +6629,9 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 }}
 .nav-btn{{
   padding:6px 9px;border-radius:8px;
-  border:1px solid #bcc8d6;
+  border:1px solid #ddd8e1;
   cursor:pointer;font-weight:800;font-size:12px;
-  transition:all .15s ease;background:linear-gradient(180deg,#f9fbfd 0%,#edf2f7 100%);color:#334155;
+  transition:all .15s ease;background:#fff;color:#4d4851;
   white-space:nowrap;flex-shrink:0;
   position:relative;
   box-shadow:0 1px 2px rgba(15,23,42,.05);
@@ -6457,15 +6645,15 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 .nav-dd{{position:relative;flex-shrink:0}}
 .nav-dd-btn{{
   padding:6px 9px;border-radius:8px;
-  border:1px solid #bcc8d6;
+  border:1px solid #ddd8e1;
   cursor:pointer;font-weight:800;font-size:12px;
-  transition:all .15s ease;background:linear-gradient(180deg,#f9fbfd 0%,#edf2f7 100%);color:#334155;
+  transition:all .15s ease;background:#fff;color:#4d4851;
   white-space:nowrap;display:flex;align-items:center;gap:4px;
   box-shadow:0 1px 2px rgba(15,23,42,.05);
 }}
 .nav-dd-btn:hover{{background:linear-gradient(180deg,#ffffff 0%,#eef3f8 100%);border-color:#aeb9c8}}
 .nav-dd-btn.active{{background:linear-gradient(180deg,#4f87e8 0%,#3d72d4 100%);border-color:#3f73cf;color:#fff;box-shadow:0 3px 10px rgba(61,114,212,.25)}}
-#btn-suche.active{{background:linear-gradient(180deg,#f6dc67 0%,#e6be22 100%);border-color:#d5ac10;color:#334155;box-shadow:0 3px 10px rgba(214,172,16,.28)}}
+#btn-suche.active{{background:#6650a4;border-color:#6650a4;color:#fff;box-shadow:0 4px 12px rgba(102,80,164,.24)}}
 #btn-suche.active .dd-arrow{{filter:none;opacity:.9}}
 .dd-arrow{{font-size:9px;opacity:.75;transition:transform .15s}}
 .inst-label{{font-size:9px;font-weight:700;opacity:1;background:#dbe5f0;border:1px solid #c0cad8;border-radius:5px;padding:1px 5px;margin:0 2px 0 4px;white-space:nowrap;color:#4b5d73}}
@@ -6497,7 +6685,7 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 .topnav-meta-btn:hover{{background:#fff;border-color:#8fa1b4}}
 .topnav-stamp{{
   font-size:10px;font-weight:800;color:#5b6b80;white-space:nowrap;
-  position:sticky;right:0;flex-shrink:0;padding:0 2px 0 4px;background:#e4e9ef;
+  position:sticky;right:0;flex-shrink:0;padding:0 2px 0 8px;background:#fff;
 }}
 .build-info-overlay{{display:none;position:fixed;inset:0;z-index:200000;background:rgba(15,23,42,.55);padding:24px;align-items:center;justify-content:center}}
 .build-info-overlay.open{{display:flex}}
