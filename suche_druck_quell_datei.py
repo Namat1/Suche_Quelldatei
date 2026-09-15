@@ -69,7 +69,7 @@ st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
 APP_CACHE_VERSION = "hupa-dashboard-2026-09-11-v54-inner-scroll"
-EXTRA_CACHE_VERSION = "extra-parser-2026-09-11-v53-scrollfix"
+EXTRA_CACHE_VERSION = "extra-parser-2026-09-15-hupa-bergen"
 APP_DISPLAY_VERSION = "53"
 APP_DISPLAY_NAME = "NFC Generator"
 
@@ -6785,13 +6785,13 @@ function hupaExportExcel(){
   for(var m=1;m<=12;m++) compare.push([HUPA_MONTH_NAMES[m-1]].concat(years.map(function(y){var v=hupaValueForMonth(aggs[y],m,dest);return v==null?null:v;})));
   compare.push(["Gesamt"].concat(years.map(function(y){return hupaTotalForDest(aggs[y],dest);}))); 
 
-  var raw=[["Datum","Jahr","Monat","Lager","TKT","Fahrer","Kennzeichen","Quelle","Blatt"]];
-  (HUPA_DATA||[]).forEach(function(r){raw.push([r.datum||"",+r.jahr||"",+r.monat||"",r.ziel||"",Number(r.tkt)||0,r.fahrer||"",r.kennzeichen||"",r.quelle||"",r.blatt||""]);});
+  var raw=[["Datum","Jahr","Monat","Lager","TKT","Bewegung","Fahrer","Kennzeichen","Quelle","Blatt"]];
+  (HUPA_DATA||[]).forEach(function(r){raw.push([r.datum||"",+r.jahr||"",+r.monat||"",r.ziel||"",Number(r.tkt)||0,r.bewegung||"",r.fahrer||"",r.kennzeichen||"",r.quelle||"",r.blatt||""]);});
 
   var wb=XLSX.utils.book_new();
   var ws1=XLSX.utils.aoa_to_sheet(overview); ws1['!cols']=[{wch:18},{wch:14},{wch:14},{wch:20},{wch:14}];
   var ws2=XLSX.utils.aoa_to_sheet(compare); ws2['!cols']=[{wch:18}].concat(years.map(function(){return {wch:14};}));
-  var ws3=XLSX.utils.aoa_to_sheet(raw); ws3['!cols']=[{wch:13},{wch:9},{wch:8},{wch:20},{wch:12},{wch:24},{wch:16},{wch:35},{wch:22}];
+  var ws3=XLSX.utils.aoa_to_sheet(raw); ws3['!cols']=[{wch:13},{wch:9},{wch:8},{wch:20},{wch:12},{wch:28},{wch:24},{wch:16},{wch:35},{wch:22}];
   XLSX.utils.book_append_sheet(wb,ws1,"Allgemeine Menge");
   XLSX.utils.book_append_sheet(wb,ws2,"Jahresvergleich");
   XLSX.utils.book_append_sheet(wb,ws3,"Rohdaten");
@@ -13327,14 +13327,35 @@ def parse_hupa_excel(uploaded_files) -> str:
                         amount_idx = next((i for i, k in enumerate(normalized) if "menge" in k and "tkt" in k), None)
                         if date_idx is None or amount_idx is None:
                             continue
+
+                        amount_header = _clean(values[amount_idx] if amount_idx < len(values) else "")
+                        sheet_target = _target(ws.title, amount_header)
+
+                        # Malchow: Zusätzlich zur normalen TKT-Menge werden auch
+                        # Rollis nach Bergen gezählt. In älteren HuPa-Dateien heißt
+                        # dieselbe Richtung häufig noch "VA nach Bergen".
+                        bergen_idx = None
+                        bergen_header = ""
+                        if sheet_target == "Malchow":
+                            bergen_idx = next((
+                                i for i, k in enumerate(normalized)
+                                if k == "vanachbergen"
+                                or ("rollis" in k and "bergen" in k and ("nach" in k or "zu" in k))
+                            ), None)
+                            if bergen_idx is not None:
+                                bergen_header = _clean(values[bergen_idx] if bergen_idx < len(values) else "")
+
                         mapping = {
                             "datum": date_idx,
                             "menge": amount_idx,
+                            "bergen": bergen_idx,
                             "name": next((i for i, k in enumerate(normalized) if k == "name"), None),
                             "vorname": next((i for i, k in enumerate(normalized) if k == "vorname"), None),
                             "kennzeichen": next((i for i, k in enumerate(normalized) if "kennzeichen" in k), None),
                         }
-                        amount_header = _clean(values[amount_idx] if amount_idx < len(values) else "")
+                        mapping["ziel"] = sheet_target
+                        mapping["menge_header"] = amount_header
+                        mapping["bergen_header"] = bergen_header
                         continue
 
                     if not any(v not in (None, "") for v in values):
@@ -13349,28 +13370,46 @@ def parse_hupa_excel(uploaded_files) -> str:
                         return values[idx] if idx is not None and idx < len(values) else None
 
                     dt = _date(get("datum"), wb.epoch)
-                    menge = _number(get("menge"))
-                    if dt is None or menge <= 0:
+                    if dt is None:
                         continue
                     if source_period and (dt.year, dt.month) != source_period:
                         continue
-                    data_started = True
-                    ziel = _target(ws.title, amount_header)
+
                     name = _clean(get("name"))
                     vorname = _clean(get("vorname"))
                     fahrer = " ".join(x for x in (name, vorname) if x).strip()
-                    rows.append({
-                        "datum": dt.strftime("%d.%m.%Y"),
-                        "date_iso": dt.strftime("%Y-%m-%d"),
-                        "jahr": dt.year,
-                        "monat": dt.month,
-                        "ziel": ziel,
-                        "tkt": round(menge, 3),
-                        "fahrer": fahrer,
-                        "kennzeichen": _clean(get("kennzeichen")),
-                        "quelle": source_name,
-                        "blatt": ws.title,
-                    })
+                    ziel = mapping.get("ziel") or _target(ws.title, mapping.get("menge_header", ""))
+
+                    # Jede relevante Bewegung separat übernehmen. Dadurch fließen
+                    # sowohl "Menge TKT nach MAL" als auch "Rollis nach Bergen"
+                    # (bzw. der alte Spaltenname "VA nach Bergen") in Malchow ein.
+                    bewegungen = [(mapping.get("menge"), mapping.get("menge_header", "TKT-Menge"))]
+                    if mapping.get("bergen") is not None:
+                        bewegungen.append((mapping.get("bergen"), mapping.get("bergen_header", "Rollis nach Bergen")))
+
+                    row_added = False
+                    for amount_col, bewegung in bewegungen:
+                        if amount_col is None or amount_col >= len(values):
+                            continue
+                        menge = _number(values[amount_col])
+                        if menge <= 0:
+                            continue
+                        row_added = True
+                        rows.append({
+                            "datum": dt.strftime("%d.%m.%Y"),
+                            "date_iso": dt.strftime("%Y-%m-%d"),
+                            "jahr": dt.year,
+                            "monat": dt.month,
+                            "ziel": ziel,
+                            "tkt": round(menge, 3),
+                            "bewegung": _clean(bewegung),
+                            "fahrer": fahrer,
+                            "kennzeichen": _clean(get("kennzeichen")),
+                            "quelle": source_name,
+                            "blatt": ws.title,
+                        })
+                    if row_added:
+                        data_started = True
         finally:
             try:
                 wb.close()
