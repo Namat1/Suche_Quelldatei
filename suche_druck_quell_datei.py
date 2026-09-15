@@ -6442,15 +6442,48 @@ def _hupa_panels_html() -> str:
   .hp-weekday-chip{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;font-size:9px;font-weight:900;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0}
   .hp-day-detail-card{margin:12px 18px 0;background:#fff;border:1px solid #d8dee7;border-radius:12px;overflow:hidden;box-shadow:0 3px 12px rgba(15,23,42,.05)}
   .hp-day-hint{padding:24px;text-align:center;color:#94a3b8;font-size:11px;font-weight:750}
+  .hp-days-subtabs{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:12px 18px 0;padding:6px;background:linear-gradient(90deg,#f5f3ff 0%,#fff7ed 52%,#f0fdf4 100%);border:1px solid #e5dff0;border-radius:11px}
+  .hp-days-subtab{border:1px solid transparent;background:transparent;color:#64748b;border-radius:8px;padding:8px 11px;font:900 10.5px 'Segoe UI',Arial,sans-serif;cursor:pointer}
+  .hp-days-subtab:hover{background:rgba(255,255,255,.75);color:#4c1d95}
+  .hp-days-subtab.active{background:#fff;color:#6d28d9;border-color:#ddd6fe;box-shadow:0 2px 7px rgba(109,40,217,.11)}
+  .hp-days-subview{display:none}
+  .hp-days-subview.active{display:block}
+  .hp-viz-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 18px 0}
+  .hp-viz-card{background:#fff;border:1px solid #d8dee7;border-radius:12px;overflow:hidden;box-shadow:0 3px 12px rgba(15,23,42,.05)}
+  .hp-viz-body{padding:14px}
+  .hp-viz-canvas{position:relative;height:360px}
+  .hp-viz-note{font-size:10px;color:#64748b;font-weight:700;padding:0 14px 12px}
+  .hp-heat-wrap{overflow:auto;padding:12px 14px 16px}
+  .hp-heat{border-collapse:separate;border-spacing:5px;width:100%;min-width:760px}
+  .hp-heat th{font-size:9px;text-transform:uppercase;letter-spacing:.4px;color:#64748b;padding:4px 5px;text-align:center}
+  .hp-heat th:first-child{text-align:left}
+  .hp-heat td{height:46px;min-width:72px;border-radius:8px;text-align:center;font-weight:950;font-size:10px;position:relative;border:1px solid rgba(109,40,217,.08);transition:.12s ease}
+  .hp-heat td:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(76,29,149,.14)}
+  .hp-heat .hp-heat-row-label{background:transparent!important;color:#334155!important;border:none!important;text-align:left;font-weight:900;min-width:105px}
+  .hp-heat .hp-heat-selected{outline:2px solid #f59e0b;outline-offset:1px}
+  .hp-top-list{padding:12px 14px 16px;display:flex;flex-direction:column;gap:8px}
+  .hp-top-row{display:grid;grid-template-columns:35px 110px 110px 1fr 88px;gap:9px;align-items:center;padding:8px 9px;border:1px solid #edf1f5;border-radius:9px;background:#fff}
+  .hp-top-rank{width:27px;height:27px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:950;color:#fff;background:linear-gradient(135deg,#7e22ce,#a855f7)}
+  .hp-top-date{font-size:11px;font-weight:950;color:#1f2937}
+  .hp-top-weekday{font-size:9.5px;font-weight:850;color:#64748b}
+  .hp-top-bar-track{height:12px;border-radius:999px;background:#f1f5f9;overflow:hidden}
+  .hp-top-bar{height:100%;border-radius:999px;background:linear-gradient(90deg,#7e22ce 0%,#c084fc 42%,#f59e0b 100%)}
+  .hp-top-value{text-align:right;font-size:11px;font-weight:950;color:#4c1d95;font-variant-numeric:tabular-nums}
+  .hp-weekday-stats{display:grid;grid-template-columns:repeat(7,minmax(86px,1fr));gap:7px;padding:12px 14px 14px}
+  .hp-weekday-stat{border:1px solid #e5e7eb;border-radius:9px;background:linear-gradient(180deg,#fff,#fafafa);padding:9px;text-align:center}
+  .hp-weekday-stat.active{border-color:#f59e0b;background:#fff7ed;box-shadow:0 0 0 2px rgba(245,158,11,.08)}
+  .hp-weekday-stat-name{font-size:9px;font-weight:950;text-transform:uppercase;color:#64748b}
+  .hp-weekday-stat-value{font-size:15px;font-weight:950;color:#172033;margin-top:3px}
+  .hp-weekday-stat-note{font-size:8.5px;color:#94a3b8;font-weight:700;margin-top:2px}
   .hp-stat-dot{width:9px;height:9px;border-radius:50%;flex:none}
   .hp-chart-card{margin:12px 18px 0;background:#fff;border:1px solid #d8dee7;border-radius:12px;padding:15px 16px;box-shadow:0 3px 12px rgba(15,23,42,.05)}
   .hp-chart-title{font-size:13px;font-weight:950;color:#1f2937;margin-bottom:3px}
   .hp-chart-sub{font-size:10.5px;color:#64748b;font-weight:650;margin-bottom:12px}
   .hp-canvas-wrap{position:relative;height:430px;touch-action:pan-y}
   .hp-empty{padding:55px 20px;text-align:center;color:#94a3b8;font-size:13px;font-weight:700}
-  @media(max-width:1200px){.hp-kpis{grid-template-columns:repeat(3,minmax(120px,1fr))}.hp-days-kpis{grid-template-columns:repeat(2,minmax(120px,1fr))}.hp-grid{grid-template-columns:1fr}}
+  @media(max-width:1200px){.hp-kpis{grid-template-columns:repeat(3,minmax(120px,1fr))}.hp-days-kpis{grid-template-columns:repeat(2,minmax(120px,1fr))}.hp-grid{grid-template-columns:1fr}.hp-viz-grid{grid-template-columns:1fr}.hp-weekday-stats{grid-template-columns:repeat(4,minmax(86px,1fr))}}
   @media(max-width:760px){.hp-head-actions{margin-left:0;width:100%}.hp-control-spacer{display:none}.hp-curve-controls{align-items:flex-start}.hp-canvas-wrap{height:360px}}
-  @media(max-width:650px){.hp-kpis{grid-template-columns:repeat(2,minmax(110px,1fr));padding:10px}.hp-grid{padding:10px}.hp-chart-card{margin:10px}.hp-curve-controls{margin:10px}.hp-head{padding:14px}.hp-tabs{padding:10px}}
+  @media(max-width:650px){.hp-kpis{grid-template-columns:repeat(2,minmax(110px,1fr));padding:10px}.hp-grid{padding:10px}.hp-chart-card{margin:10px}.hp-curve-controls{margin:10px}.hp-head{padding:14px}.hp-tabs{padding:10px}.hp-days-subtabs{margin:10px}.hp-viz-grid{margin:10px}.hp-weekday-stats{grid-template-columns:repeat(2,minmax(86px,1fr))}.hp-top-row{grid-template-columns:30px 1fr 72px}.hp-top-weekday,.hp-top-bar-track{display:none}}
 </style>
 
 <div id="panel-hupa" style="display:none;flex:1;min-height:0;height:100%;overflow:hidden;padding:18px 0;background:linear-gradient(135deg,#f6f0ff 0%,#f7f7f9 42%,#fff5e8 72%,#effbf3 100%);font-family:'Segoe UI',Arial,sans-serif">
@@ -6459,7 +6492,7 @@ def _hupa_panels_html() -> str:
       <div class="hp-icon">&#128230;</div>
       <div style="min-width:240px;flex:1">
         <div class="hp-title">HuPa &ndash; TKT-Bewegungen</div>
-        <div class="hp-sub">Mengen, Lagerverteilung und Jahresvergleich auf Monatsbasis.</div>
+        <div class="hp-sub">Mengen, Lagerverteilung, Wochentage, Heatmap und Jahresvergleich.</div>
       </div>
       <div class="hp-head-actions">
         <span class="hp-control-label">Auswertungsjahr</span>
@@ -6554,13 +6587,61 @@ def _hupa_panels_html() -> str:
         <span id="hupa-days-label" class="hp-badge">Alle Tage</span>
       </div>
       <div id="hupa-days-kpis" class="hp-kpis hp-days-kpis"></div>
-      <div class="hp-chart-card" style="padding:0">
-        <div class="hp-box-head" id="hupa-days-table-title">Tage im ausgewählten Jahr</div>
-        <div id="hupa-days-table" class="hp-table-wrap"></div>
+
+      <div class="hp-days-subtabs">
+        <button id="hupa-days-subtab-list" class="hp-days-subtab active" type="button" onclick="hupaDaysSetView('list')">Tagesliste</button>
+        <button id="hupa-days-subtab-weekday" class="hp-days-subtab" type="button" onclick="hupaDaysSetView('weekday')">Wochentage</button>
+        <button id="hupa-days-subtab-months" class="hp-days-subtab" type="button" onclick="hupaDaysSetView('months')">Monate &amp; Lager</button>
+        <button id="hupa-days-subtab-heatmap" class="hp-days-subtab" type="button" onclick="hupaDaysSetView('heatmap')">Heatmap</button>
+        <button id="hupa-days-subtab-top" class="hp-days-subtab" type="button" onclick="hupaDaysSetView('top')">Top 10 Tage</button>
       </div>
-      <div class="hp-day-detail-card">
-        <div class="hp-box-head" id="hupa-day-detail-title">Tagesdetails</div>
-        <div id="hupa-day-detail" class="hp-day-hint">Auf einen Tag in der Tabelle klicken, um die einzelnen HuPa-Bewegungen anzusehen.</div>
+
+      <div id="hupa-days-sub-list" class="hp-days-subview active">
+        <div class="hp-chart-card" style="padding:0">
+          <div class="hp-box-head" id="hupa-days-table-title">Tage im ausgewählten Jahr</div>
+          <div id="hupa-days-table" class="hp-table-wrap"></div>
+        </div>
+        <div class="hp-day-detail-card">
+          <div class="hp-box-head" id="hupa-day-detail-title">Tagesdetails</div>
+          <div id="hupa-day-detail" class="hp-day-hint">Auf einen Tag in der Tabelle klicken, um die einzelnen HuPa-Bewegungen anzusehen.</div>
+        </div>
+      </div>
+
+      <div id="hupa-days-sub-weekday" class="hp-days-subview">
+        <div class="hp-viz-grid">
+          <div class="hp-viz-card">
+            <div class="hp-box-head">Ø TKT pro aktivem Tag nach Wochentag</div>
+            <div class="hp-viz-body"><div class="hp-viz-canvas"><canvas id="hupa-chart-weekday"></canvas></div></div>
+            <div class="hp-viz-note">Der Wochentagsfilter wird farblich hervorgehoben; die Grafik zeigt zum Vergleich trotzdem alle Wochentage.</div>
+          </div>
+          <div class="hp-viz-card">
+            <div class="hp-box-head">Wochentage im Überblick</div>
+            <div id="hupa-weekday-stats" class="hp-weekday-stats"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="hupa-days-sub-months" class="hp-days-subview">
+        <div class="hp-chart-card">
+          <div class="hp-chart-title">Monatsmengen nach Lager</div>
+          <div class="hp-chart-sub" id="hupa-month-stack-sub">Bei „Alle Lager“ werden die drei Lager gestapelt dargestellt.</div>
+          <div class="hp-canvas-wrap"><canvas id="hupa-chart-month-stack"></canvas></div>
+        </div>
+      </div>
+
+      <div id="hupa-days-sub-heatmap" class="hp-days-subview">
+        <div class="hp-chart-card" style="padding:0">
+          <div class="hp-box-head">Heatmap · Monat × Wochentag</div>
+          <div class="hp-viz-note" style="padding-top:10px">Je dunkler das Feld, desto höher die TKT-Menge. Der gewählte Wochentag wird orange umrandet.</div>
+          <div id="hupa-heatmap" class="hp-heat-wrap"></div>
+        </div>
+      </div>
+
+      <div id="hupa-days-sub-top" class="hp-days-subview">
+        <div class="hp-chart-card" style="padding:0">
+          <div class="hp-box-head" id="hupa-top-title">Top 10 stärkste Tage</div>
+          <div id="hupa-top-days" class="hp-top-list"></div>
+        </div>
       </div>
     </div>
     </div>
@@ -6581,7 +6662,10 @@ var HUPA_CURVE_MODE = "single";
 var HUPA_CURVE_DEST = "Gesamt";
 var HUPA_DAYS_DEST = "Gesamt";
 var HUPA_DAYS_WEEKDAY = 0;
+var HUPA_DAYS_VIEW = "list";
 var HUPA_SELECTED_DAY = "";
+var HUPA_WEEKDAY_CHART = null;
+var HUPA_MONTH_STACK_CHART = null;
 var HUPA_YEAR_COLORS = ["#6d28d9","#d97706","#15803d","#be123c","#4338ca","#c2410c","#047857","#a21caf"];
 
 function hupaEsc(v){return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
@@ -6828,6 +6912,104 @@ function hupaDaysAggregate(rows){
   });
   return Object.keys(map).sort().map(function(k){return map[k];});
 }
+function hupaDaysRowsForVisuals(){
+  var year=hupaSelectedYear(), dest=HUPA_DAYS_DEST||"Gesamt";
+  return hupaRowsForYear(year).filter(function(r){
+    if(dest!=="Gesamt" && String(r.ziel||"")!==dest) return false;
+    return !!r.date_iso;
+  });
+}
+function hupaWeekdayAggregate(rows){
+  var out={};
+  for(var i=1;i<=7;i++) out[i]={weekday:i,total:0,count:0,days:{},dayCount:0,avg:0};
+  (rows||[]).forEach(function(r){
+    var wd=hupaWeekdayNo(r.date_iso); if(!wd||!out[wd]) return;
+    out[wd].total+=Number(r.tkt)||0; out[wd].count++;
+    if(r.date_iso) out[wd].days[String(r.date_iso)]=1;
+  });
+  Object.keys(out).forEach(function(k){var a=out[k];a.dayCount=Object.keys(a.days).length;a.avg=a.dayCount?a.total/a.dayCount:0;});
+  return out;
+}
+function hupaDaysSetView(view){
+  var allowed=["list","weekday","months","heatmap","top"];
+  HUPA_DAYS_VIEW=allowed.indexOf(view)>=0?view:"list";
+  allowed.forEach(function(v){
+    var panel=document.getElementById("hupa-days-sub-"+v), btn=document.getElementById("hupa-days-subtab-"+v);
+    if(panel) panel.className="hp-days-subview"+(HUPA_DAYS_VIEW===v?" active":"");
+    if(btn) btn.className="hp-days-subtab"+(HUPA_DAYS_VIEW===v?" active":"");
+  });
+  requestAnimationFrame(hupaRenderDaysVisuals);
+}
+function hupaRenderWeekdayChart(){
+  var rows=hupaDaysRowsForVisuals(), agg=hupaWeekdayAggregate(rows), stats=document.getElementById("hupa-weekday-stats");
+  if(stats){
+    stats.innerHTML=[1,2,3,4,5,6,7].map(function(wd){var a=agg[wd];return '<div class="hp-weekday-stat'+(HUPA_DAYS_WEEKDAY===wd?' active':'')+'"><div class="hp-weekday-stat-name">'+hupaWeekdayName(wd)+'</div><div class="hp-weekday-stat-value">'+hupaNum(a.avg)+'</div><div class="hp-weekday-stat-note">Ø · '+hupaNum(a.total)+' TKT · '+a.dayCount+' Tage</div></div>';}).join('');
+  }
+  var canvas=document.getElementById("hupa-chart-weekday"); if(!canvas||typeof Chart==="undefined") return;
+  if(HUPA_WEEKDAY_CHART){HUPA_WEEKDAY_CHART.destroy();HUPA_WEEKDAY_CHART=null;}
+  var base=["#8b5cf6","#a855f7","#d946ef","#f59e0b","#f97316","#22c55e","#0ea5e9"];
+  HUPA_WEEKDAY_CHART=new Chart(canvas.getContext("2d"),{
+    type:"bar",
+    data:{labels:[1,2,3,4,5,6,7].map(hupaWeekdayName),datasets:[{label:"Ø TKT / aktiver Tag",data:[1,2,3,4,5,6,7].map(function(wd){return Math.round(agg[wd].avg||0);}),backgroundColor:[1,2,3,4,5,6,7].map(function(wd,i){return HUPA_DAYS_WEEKDAY===wd?"#f59e0b":base[i];}),borderRadius:7,borderSkipped:false}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{afterLabel:function(c){var a=agg[c.dataIndex+1];return "Gesamt: "+hupaNum(a.total)+" TKT · "+a.dayCount+" Tage";}}}},scales:{y:{beginAtZero:true,title:{display:true,text:"Ø TKT"},ticks:{callback:function(v){return hupaNum(v);}},grid:{color:"rgba(100,116,139,.12)"}},x:{grid:{display:false}}}}
+  });
+}
+function hupaRenderMonthStack(){
+  var year=hupaSelectedYear(), rows=hupaRowsForYear(year), dest=HUPA_DAYS_DEST||"Gesamt";
+  if(dest!=="Gesamt") rows=rows.filter(function(r){return String(r.ziel||"")===dest;});
+  var agg=hupaAggregate(rows), canvas=document.getElementById("hupa-chart-month-stack");
+  var sub=document.getElementById("hupa-month-stack-sub"); if(sub) sub.textContent=(dest==="Gesamt"?"Alle Lager gestapelt":"Nur "+dest)+" · "+(year||"");
+  if(!canvas||typeof Chart==="undefined") return;
+  if(HUPA_MONTH_STACK_CHART){HUPA_MONTH_STACK_CHART.destroy();HUPA_MONTH_STACK_CHART=null;}
+  var sets=[];
+  if(dest==="Gesamt"){
+    sets=[
+      {label:"Malchow",key:"Malchow",backgroundColor:"#8b5cf6"},
+      {label:"NMS",key:"NMS",backgroundColor:"#f59e0b"},
+      {label:"S&L / Zarrentin",key:"S&L / Zarrentin",backgroundColor:"#22c55e"}
+    ];
+  }else{
+    var color=dest==="Malchow"?"#8b5cf6":dest==="NMS"?"#f59e0b":"#22c55e";
+    sets=[{label:dest,key:dest,backgroundColor:color}];
+  }
+  sets.forEach(function(s){s.data=HUPA_MONTH_NAMES.map(function(_,i){var row=agg.months[i+1];return row?Number(row[s.key]||0):null;});s.borderRadius=5;s.borderSkipped=false;s.stack="hupa";});
+  HUPA_MONTH_STACK_CHART=new Chart(canvas.getContext("2d"),{
+    type:"bar",data:{labels:HUPA_MONTH_NAMES.slice(),datasets:sets},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{display:dest==="Gesamt",position:"bottom",labels:{usePointStyle:true,boxWidth:9,font:{weight:"800"}}},tooltip:{callbacks:{label:function(c){return c.dataset.label+": "+hupaNum(c.raw||0)+" TKT";}}}},scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,beginAtZero:true,title:{display:true,text:"TKT"},ticks:{callback:function(v){return hupaNum(v);}},grid:{color:"rgba(100,116,139,.12)"}}}}
+  });
+}
+function hupaRenderHeatmap(){
+  var rows=hupaDaysRowsForVisuals(), map={}, max=0;
+  (rows||[]).forEach(function(r){var m=+r.monat||0,wd=hupaWeekdayNo(r.date_iso),n=Number(r.tkt)||0;if(!m||!wd)return;var k=m+"|"+wd;map[k]=(map[k]||0)+n;if(map[k]>max)max=map[k];});
+  var host=document.getElementById("hupa-heatmap"); if(!host) return;
+  if(!rows.length){host.innerHTML='<div class="hp-empty">Keine Daten für die Heatmap.</div>';return;}
+  var html='<table class="hp-heat"><thead><tr><th>Wochentag</th>'+HUPA_MONTH_NAMES.map(function(m){return '<th>'+m+'</th>';}).join('')+'</tr></thead><tbody>';
+  for(var wd=1;wd<=7;wd++){
+    html+='<tr><td class="hp-heat-row-label">'+hupaWeekdayName(wd)+'</td>';
+    for(var m=1;m<=12;m++){
+      var v=map[m+"|"+wd]||0, ratio=max?v/max:0, alpha=v?(.12+.78*Math.pow(ratio,.72)):.035;
+      var text=ratio>.48?'#fff':'#4c1d95';
+      html+='<td class="'+(HUPA_DAYS_WEEKDAY===wd?'hp-heat-selected':'')+'" title="'+hupaWeekdayName(wd)+' · '+HUPA_MONTH_NAMES[m-1]+': '+hupaNum(v)+' TKT" style="background:rgba(109,40,217,'+alpha.toFixed(3)+');color:'+text+'">'+(v?hupaNum(v):'–')+'</td>';
+    }
+    html+='</tr>';
+  }
+  html+='</tbody></table>'; host.innerHTML=html;
+}
+function hupaRenderTopDays(){
+  var days=hupaDaysAggregate(hupaDaysFilteredRows()).sort(function(a,b){return b.total-a.total;}).slice(0,10), host=document.getElementById("hupa-top-days"), title=document.getElementById("hupa-top-title");
+  if(title) title.textContent="Top 10 stärkste Tage · "+(HUPA_DAYS_DEST==="Gesamt"?"Alle Lager":HUPA_DAYS_DEST)+(HUPA_DAYS_WEEKDAY?" · "+hupaWeekdayName(HUPA_DAYS_WEEKDAY):"");
+  if(!host) return;
+  if(!days.length){host.innerHTML='<div class="hp-empty">Keine Tage für diese Filter.</div>';return;}
+  var max=days[0].total||1;
+  host.innerHTML=days.map(function(a,i){var pct=Math.max(4,(a.total/max)*100);return '<div class="hp-top-row" onclick="hupaDaysSetView(\'list\');setTimeout(function(){hupaShowDay(\''+a.date_iso+'\')},0)" style="cursor:pointer"><div class="hp-top-rank">'+(i+1)+'</div><div><div class="hp-top-date">'+hupaDateLabel(a.date_iso)+'</div><div class="hp-top-weekday">'+hupaWeekdayName(a.weekday)+'</div></div><div class="hp-top-weekday">'+hupaNum(a.count)+' Einträge</div><div class="hp-top-bar-track"><div class="hp-top-bar" style="width:'+pct.toFixed(1)+'%"></div></div><div class="hp-top-value">'+hupaNum(a.total)+' TKT</div></div>';}).join('');
+}
+function hupaRenderDaysVisuals(){
+  if(HUPA_DAYS_VIEW==="weekday") hupaRenderWeekdayChart();
+  else if(HUPA_DAYS_VIEW==="months") hupaRenderMonthStack();
+  else if(HUPA_DAYS_VIEW==="heatmap") hupaRenderHeatmap();
+  else if(HUPA_DAYS_VIEW==="top") hupaRenderTopDays();
+}
+
 function hupaDaysFilterChanged(){
   var d=document.getElementById("hupa-days-dest"),w=document.getElementById("hupa-days-weekday");
   HUPA_DAYS_DEST=d?d.value:"Gesamt";
@@ -6871,6 +7053,9 @@ function hupaRenderDays(){
     }
   }
   if(HUPA_SELECTED_DAY) hupaShowDay(HUPA_SELECTED_DAY,true); else hupaClearDayDetail();
+  var subviews=["list","weekday","months","heatmap","top"];
+  subviews.forEach(function(v){var panel=document.getElementById("hupa-days-sub-"+v),btn=document.getElementById("hupa-days-subtab-"+v);if(panel)panel.className="hp-days-subview"+(HUPA_DAYS_VIEW===v?" active":"");if(btn)btn.className="hp-days-subtab"+(HUPA_DAYS_VIEW===v?" active":"");});
+  requestAnimationFrame(hupaRenderDaysVisuals);
 }
 function hupaClearDayDetail(){
   var t=document.getElementById("hupa-day-detail-title"),h=document.getElementById("hupa-day-detail");
@@ -6953,14 +7138,33 @@ function hupaExportExcel(){
   var daysExport=[["Tagesauswertung",year||"",HUPA_DAYS_DEST||"Gesamt",HUPA_DAYS_WEEKDAY?hupaWeekdayName(HUPA_DAYS_WEEKDAY):"Alle Wochentage"],["Datum","Wochentag","NMS","Malchow","S&L / Zarrentin","Gesamt","Einträge"]];
   dayRows.forEach(function(a){daysExport.push([hupaDateLabel(a.date_iso),hupaWeekdayName(a.weekday),Number(a["NMS"]||0),Number(a["Malchow"]||0),Number(a["S&L / Zarrentin"]||0),Number(a.total||0),Number(a.count||0)]);});
 
+  var visualRows=hupaDaysRowsForVisuals();
+  var wdAgg=hupaWeekdayAggregate(visualRows);
+  var weekdayExport=[["Wochentagsauswertung",year||"",HUPA_DAYS_DEST||"Gesamt"],["Wochentag","Aktive Tage","TKT gesamt","Ø TKT pro aktivem Tag","Einträge"]];
+  for(var wd=1;wd<=7;wd++){var wa=wdAgg[wd];weekdayExport.push([hupaWeekdayName(wd),wa.dayCount,Number(wa.total||0),Number(wa.avg||0),wa.count]);}
+
+  var heatMap={};
+  visualRows.forEach(function(r){var mm=+r.monat||0,ww=hupaWeekdayNo(r.date_iso);if(!mm||!ww)return;var kk=mm+"|"+ww;heatMap[kk]=(heatMap[kk]||0)+(Number(r.tkt)||0);});
+  var heatExport=[["Heatmap",year||"",HUPA_DAYS_DEST||"Gesamt"],["Wochentag"].concat(HUPA_MONTH_NAMES)];
+  for(var hwd=1;hwd<=7;hwd++){heatExport.push([hupaWeekdayName(hwd)].concat(HUPA_MONTH_NAMES.map(function(_,mi){return Number(heatMap[(mi+1)+"|"+hwd]||0);})));}
+
+  var topExport=[["Top 10 Tage",year||"",HUPA_DAYS_DEST||"Gesamt",HUPA_DAYS_WEEKDAY?hupaWeekdayName(HUPA_DAYS_WEEKDAY):"Alle Wochentage"],["Rang","Datum","Wochentag","TKT","Einträge","NMS","Malchow","S&L / Zarrentin"]];
+  hupaDaysAggregate(hupaDaysFilteredRows()).sort(function(a,b){return b.total-a.total;}).slice(0,10).forEach(function(a,i){topExport.push([i+1,hupaDateLabel(a.date_iso),hupaWeekdayName(a.weekday),Number(a.total||0),Number(a.count||0),Number(a["NMS"]||0),Number(a["Malchow"]||0),Number(a["S&L / Zarrentin"]||0)]);});
+
   var wb=XLSX.utils.book_new();
   var ws1=XLSX.utils.aoa_to_sheet(overview); ws1['!cols']=[{wch:18},{wch:14},{wch:14},{wch:20},{wch:14}];
   var ws2=XLSX.utils.aoa_to_sheet(compare); ws2['!cols']=[{wch:18}].concat(years.map(function(){return {wch:14};}));
   var ws3=XLSX.utils.aoa_to_sheet(raw); ws3['!cols']=[{wch:13},{wch:9},{wch:8},{wch:20},{wch:12},{wch:28},{wch:24},{wch:16},{wch:35},{wch:22}];
   var ws4=XLSX.utils.aoa_to_sheet(daysExport); ws4['!cols']=[{wch:15},{wch:15},{wch:14},{wch:14},{wch:20},{wch:14},{wch:12}];
+  var ws5=XLSX.utils.aoa_to_sheet(weekdayExport); ws5['!cols']=[{wch:16},{wch:14},{wch:14},{wch:22},{wch:12}];
+  var ws6=XLSX.utils.aoa_to_sheet(heatExport); ws6['!cols']=[{wch:16}].concat(HUPA_MONTH_NAMES.map(function(){return {wch:12};}));
+  var ws7=XLSX.utils.aoa_to_sheet(topExport); ws7['!cols']=[{wch:8},{wch:15},{wch:15},{wch:14},{wch:12},{wch:12},{wch:14},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws1,"Allgemeine Menge");
   XLSX.utils.book_append_sheet(wb,ws2,"Jahresvergleich");
   XLSX.utils.book_append_sheet(wb,ws4,"Tagesauswertung");
+  XLSX.utils.book_append_sheet(wb,ws5,"Wochentage");
+  XLSX.utils.book_append_sheet(wb,ws6,"Heatmap");
+  XLSX.utils.book_append_sheet(wb,ws7,"Top 10 Tage");
   XLSX.utils.book_append_sheet(wb,ws3,"Rohdaten");
   XLSX.writeFile(wb,"HuPa_TKT_Auswertung_"+(year||"alle")+".xlsx");
 }
@@ -6974,7 +7178,7 @@ function hupaInit(){
   if(current && years.indexOf(current)>=0) sel.value=String(current);
   else if(years.length) sel.value=String(years[0]);
   HUPA_CURVE_MODE="single";
-  HUPA_DAYS_DEST="Gesamt"; HUPA_DAYS_WEEKDAY=0; HUPA_SELECTED_DAY="";
+  HUPA_DAYS_DEST="Gesamt"; HUPA_DAYS_WEEKDAY=0; HUPA_DAYS_VIEW="list"; HUPA_SELECTED_DAY="";
   var modeSel=document.getElementById("hupa-curve-mode"); if(modeSel) modeSel.value="single";
   var yearGroup=document.getElementById("hupa-compare-year-group"); if(yearGroup) yearGroup.style.display="none";
   hupaSetTab(HUPA_TAB||"general");
