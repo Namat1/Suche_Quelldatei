@@ -68,7 +68,7 @@ _boot_log("03 Standardimporte bereit; pandas wird verzögert geladen")
 st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
-APP_CACHE_VERSION = "hupa-dashboard-2026-09-11-v54-inner-scroll"
+APP_CACHE_VERSION = "hupa-dashboard-2026-09-18-v55-kisoft-kundenhinweise"
 EXTRA_CACHE_VERSION = "extra-parser-2026-09-15-hupa-bergen"
 APP_DISPLAY_VERSION = "53"
 APP_DISPLAY_NAME = "NFC Generator"
@@ -3072,39 +3072,108 @@ def build_kundenart_map(csv_file) -> dict:
 
 
 def build_lieferhinweis_csv(csv_file) -> dict:
-    """Liest Lieferhinweis-CSV: ';'-getrennt, gequotet.
-    Felder: [0]=SAP-Nr, [1]=CSB-Nr, [2]=Name, [3]=Strasse, [4]=PLZ,
-            [5]=Ort, [6]=Art/Rollcontainer, [7]=Lieferhinweis, ...
-    Key im Ergebnis: CSB-Nr (normalisiert, führende Nullen entfernt).
-    Gibt {csb: {'d': lieferhinweis}} zurück; Ladehilfsmittel wird nicht angezeigt."""
+    """Liest Kundenhinweise aus der Kisoft-Kunden-CSV.
+
+    Aktuelles Kisoft-Format (18.09.2026):
+      Kundennummer | CSB Kundennummer | Kundenname | Straße | Postleitzahl | Ort |
+      Versand-LE Typ | Lieferinfo | ...
+
+    Fuer die Anzeige wird die *CSB Kundennummer* als Schluessel und *Lieferinfo*
+    als Kundenhinweis verwendet. Aeltere Lieferhinweis-CSVs mit festen Spalten
+    [1]=CSB und [7]=Lieferhinweis bleiben als Fallback kompatibel.
+
+    Ergebnis: {csb: {"d": lieferinfo}}
+    """
     if csv_file is None:
         return {}
+
     import csv as _csv
     import io as _io
+
     try:
         csv_file.seek(0)
         raw = csv_file.read()
-        if isinstance(raw, bytes):
-            raw = raw.decode("utf-8", errors="replace")
     except Exception:
         return {}
+
+    if not raw:
+        return {}
+
+    # Kisoft exportiert derzeit UTF-8 mit Semikolon. Die Erkennung bleibt
+    # absichtlich robuster, damit auch ANSI/Excel-Exporte weiter funktionieren.
+    if isinstance(raw, bytes):
+        text = None
+        for enc in ("utf-8-sig", "utf-8", "cp1252", "latin1"):
+            try:
+                text = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        if text is None:
+            text = raw.decode("utf-8", errors="replace")
+    else:
+        text = str(raw)
+
+    sample = text[:8192]
+    try:
+        dialect = _csv.Sniffer().sniff(sample, delimiters=";,\t|")
+        delimiter = dialect.delimiter
+    except Exception:
+        delimiter = ";"
+
+    rows = list(_csv.reader(_io.StringIO(text), delimiter=delimiter, quotechar='"'))
+    if not rows:
+        return {}
+
+    header = rows[0]
+    header_norm = [normalize_header_py(col) for col in header]
+
+    def _find_header(*aliases):
+        alias_norm = {normalize_header_py(alias) for alias in aliases}
+        for idx, value in enumerate(header_norm):
+            if value in alias_norm:
+                return idx
+        return None
+
+    csb_idx = _find_header(
+        "CSB Kundennummer", "CSB-Kundennummer", "CSB Kundennr",
+        "CSB", "CSB-Nr", "CSB Nummer", "CSB-Nummer",
+    )
+    hinweis_idx = _find_header(
+        "Lieferinfo", "Liefer Info", "Lieferhinweis", "Lieferhinweise",
+        "Kundenhinweis", "Kundenhinweise", "Hinweis",
+    )
+
+    # Neues, headerbasiertes Kisoft-Format erkannt.
+    if csb_idx is not None and hinweis_idx is not None:
+        data_rows = rows[1:]
+    else:
+        # Rueckwaertskompatibilitaet zum bisherigen positionsbasierten Format.
+        csb_idx = 1
+        hinweis_idx = 7
+        data_rows = rows
+
     result = {}
-    reader = _csv.reader(_io.StringIO(raw), delimiter=";", quotechar='"')
-    for row in reader:
-        if len(row) < 2:
+    for row in data_rows:
+        if len(row) <= csb_idx:
             continue
-        csb = normalize_digits_py(row[1]) if len(row) > 1 else ""
+        csb = normalize_digits_py(row[csb_idx])
         if not csb:
             continue
-        art      = row[6].strip() if len(row) > 6 else ""
-        hinweis  = row[7].strip() if len(row) > 7 else ""
-        if art or hinweis:
-            entry = {}
-            if art:
-                pass
-            if hinweis:
-                entry["d"] = hinweis
-            result[csb] = entry
+
+        hinweis = row[hinweis_idx].strip() if len(row) > hinweis_idx else ""
+        if not hinweis:
+            continue
+
+        # Falls ein CSB-Kunde mehrfach vorkommt, keine Information verlieren.
+        existing = str((result.get(csb) or {}).get("d", "")).strip()
+        if existing and hinweis not in [part.strip() for part in existing.split(" · ")]:
+            hinweis = existing + " · " + hinweis
+        elif existing:
+            hinweis = existing
+
+        result[csb] = {"d": hinweis}
+
     return result
 
 
@@ -15161,13 +15230,13 @@ with tab_stamm:
         _global_uploader("Telefonnummern Fachberater", ["xlsx"],                   "g_fach",      "global_up_fach_v2")
     with col_b:
         _global_uploader("Kundenliste Original",       ["xlsx"], "g_fcsb",       "global_up_fcsb_v2")
-        _global_uploader("Lieferhinweise CSV",         ["csv"],  "g_lh_csv",     "global_up_lh_csv_v2")
+        _global_uploader("Kisoft Kunden CSV (Kundenhinweise)", ["csv"], "g_lh_csv", "global_up_lh_csv_v3")
         _global_uploader("Rahmentourprofil CSV",       ["csv"],  "g_rahmen_csv", "global_up_rahmen_csv_v2")
         _global_uploader("Kundenart Absetzer/Rampe CSV", ["csv"], "g_kundenart_csv", "global_up_kundenart_csv_v1")
 
     _items = [
         ("g_logo","Logo"), ("g_key","Schluessel"), ("g_fach","FB-Tel"),
-        ("g_fcsb","Kundenliste"), ("g_lh_csv","Lieferhinweise"), ("g_rahmen_csv","Rahmentour"),
+        ("g_fcsb","Kundenliste"), ("g_lh_csv","Kundenhinweise"), ("g_rahmen_csv","Rahmentour"),
         ("g_kundenart_csv","Kundenart")
     ]
     _ok   = [lbl for k, lbl in _items if st.session_state.get(k)]
