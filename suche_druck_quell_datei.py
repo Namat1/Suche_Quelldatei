@@ -68,8 +68,9 @@ _boot_log("03 Standardimporte bereit; pandas wird verzögert geladen")
 st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
-APP_CACHE_VERSION = "hupa-dashboard-2026-09-20-v56-current-month-marker"
-EXTRA_CACHE_VERSION = "extra-parser-2026-09-20-timerec-netto-fix"
+APP_CACHE_VERSION = "hupa-dashboard-2026-09-20-v57-saturday-timerec-refresh"
+EXTRA_CACHE_VERSION = "extra-parser-2026-09-20-saturday-refresh-v2"
+TIMEREC_PARSER_VERSION = "timerec-parser-2026-09-20-v3-netto-saturday-contenthash"
 APP_DISPLAY_VERSION = "53"
 APP_DISPLAY_NAME = "NFC Generator"
 
@@ -15447,7 +15448,24 @@ def _extra_single_upload(label, types, key_prefix, parser, summary_fn=None,
         if quality.get("status") == "error":
             _set_processing_status(status_key, label, "error", quality.get("summary", "Dateiprüfung fehlgeschlagen"), filename)
             return
-        sig = combine_signatures(EXTRA_CACHE_VERSION, key_prefix, upload_signature(up))
+        # Fuer die Tachograph-/Schichtdatei reicht die Streamlit file_id nicht aus:
+        # Bei einem erneuten Upload derselben Datei bzw. nach Parser-Aenderungen kann
+        # sonst ein alter timerec_json-Stand in der Session weiterverwendet werden.
+        # Deshalb bekommt timerecording eine eigene Parser-Version UND einen echten
+        # SHA-256 ueber den Dateiinhalt. So wird die Sa-/So-Auswertung sicher neu gebaut.
+        if key_prefix == "timerec":
+            source_fingerprint = _stream_upload_hash(up)
+            parser_cache_version = TIMEREC_PARSER_VERSION
+        else:
+            source_fingerprint = upload_signature(up)
+            parser_cache_version = EXTRA_CACHE_VERSION
+
+        sig = combine_signatures(
+            EXTRA_CACHE_VERSION,
+            parser_cache_version,
+            key_prefix,
+            source_fingerprint,
+        )
         if st.session_state.get(sig_key) != sig:
             try:
                 with st.spinner(spinner_text):
@@ -15902,7 +15920,13 @@ with tab_extra:
 
         def _timerec_summary(j):
             tr  = json.loads(j or "{}")
-            return f"{len(tr)} Fahrer, {sum(len(v) for v in tr.values())} Schichten"
+            shift_count = sum(len(v) for v in tr.values())
+            try:
+                sam_rows = json.loads(_build_saturday_json_from_timerecording(j) or "[]")
+                weekend_count = sum(int(d.get("einsaetze", 0) or 0) for d in sam_rows if isinstance(d, dict))
+                return f"{len(tr)} Fahrer, {shift_count} Schichten, {weekend_count} Sa/So-Einsätze"
+            except Exception:
+                return f"{len(tr)} Fahrer, {shift_count} Schichten"
         _extra_single_upload(
             "Schichten / Tachograph (CSV: timerecording_v3*.csv)", ["csv"],
             "timerec", parse_timerecording_csv,
