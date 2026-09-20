@@ -5165,6 +5165,277 @@ _JS_KNAPP = r""""""
 
 # _static_payload_text("_JS_SPED") wurde fuer Cloud-Stabilitaet nach nfc_assets ausgelagert.
 
+
+_SPED_OVERVIEW_RUNTIME_PATCH = r"""
+// ── Spediteure: erweiterte Übersicht ────────────────────────────────────────
+// Dieser Laufzeit-Patch erweitert ausschließlich den Listen-/Übersichts-Tab.
+// Die separate Graph-Auswertung aus _JS_SPED bleibt unverändert erhalten.
+var SPED_OV_JAHR = "";
+var SPED_OV_MONAT = "all";
+var SPED_OV_FILTER = "all";
+var SPED_OV_SEARCH = "";
+
+function spedOvEsc(v){
+  return String(v == null ? "" : v)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+
+function spedOvUniq(arr){
+  return Array.from(new Set((arr || []).filter(function(v){ return String(v || "").trim() !== ""; })));
+}
+
+function spedOvMonthName(m){
+  var names = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+  var n = parseInt(m,10);
+  return (n >= 1 && n <= 12) ? names[n-1] : String(m || "");
+}
+
+function spedOvGroup(row){
+  return String((row && (row.gruppe || row.name)) || "Unbekannt");
+}
+
+function spedOvRowsBase(){
+  return (SPED_DATA && Array.isArray(SPED_DATA.fahrten)) ? SPED_DATA.fahrten : [];
+}
+
+function spedOvFilteredRows(includeSearch){
+  var rows = spedOvRowsBase().filter(function(r){
+    if(SPED_OV_JAHR && String(r.jahr || "") !== String(SPED_OV_JAHR)) return false;
+    if(SPED_OV_MONAT !== "all" && String(r.monat || "") !== String(SPED_OV_MONAT)) return false;
+    if(SPED_OV_FILTER !== "all" && spedOvGroup(r) !== SPED_OV_FILTER) return false;
+    return true;
+  });
+  if(includeSearch !== false && SPED_OV_SEARCH){
+    var q = SPED_OV_SEARCH.toLowerCase();
+    rows = rows.filter(function(r){
+      var hay = [r.datum,r.wd,r.gruppe,r.name,r.nr,r.tour,r.lkw,r.zeit,r.quelle].join(" ").toLowerCase();
+      return hay.indexOf(q) >= 0;
+    });
+  }
+  return rows;
+}
+
+function spedOvColor(name, alpha){
+  var s = String(name || ""), h = 0;
+  for(var i=0;i<s.length;i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  var hue = (h % 300) + 20;
+  return "hsla("+hue+",58%,48%,"+(alpha == null ? 1 : alpha)+")";
+}
+
+function spedOvMetric(label, value, hint, accent){
+  accent = accent || "#475569";
+  return '<div style="min-width:122px;padding:9px 12px;border:1px solid #dbe4ee;border-radius:10px;background:#fff;box-shadow:0 2px 7px rgba(15,23,42,.035);">'
+       + '<div style="font-size:10px;font-weight:900;letter-spacing:.45px;text-transform:uppercase;color:#94a3b8;">'+spedOvEsc(label)+'</div>'
+       + '<div style="font-size:21px;line-height:1.1;font-weight:950;color:'+accent+';margin-top:2px;">'+spedOvEsc(value)+'</div>'
+       + (hint ? '<div style="font-size:10px;color:#94a3b8;margin-top:2px;white-space:nowrap;">'+spedOvEsc(hint)+'</div>' : '')
+       + '</div>';
+}
+
+function spedOvBar(label, value, max, color, sub){
+  var pct = max > 0 ? Math.max(4, Math.round(value / max * 100)) : 0;
+  return '<div style="margin:9px 0;">'
+       + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;">'
+       + '<div style="font-size:11px;font-weight:850;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+spedOvEsc(label)+'</div>'
+       + '<div style="font-size:11px;font-weight:950;color:#0f172a;white-space:nowrap;">'+spedOvEsc(value)+(sub ? ' <span style="font-size:9px;color:#94a3b8;font-weight:800;">'+spedOvEsc(sub)+'</span>' : '')+'</div>'
+       + '</div>'
+       + '<div style="height:6px;background:#edf2f7;border-radius:999px;overflow:hidden;margin-top:4px;">'
+       + '<div style="height:100%;width:'+pct+'%;background:'+color+';border-radius:999px;"></div></div></div>';
+}
+
+function spedOvRenderStats(rows){
+  var el = document.getElementById("sped-stats");
+  if(!el) return;
+  var groups = spedOvUniq(rows.map(spedOvGroup));
+  var units = spedOvUniq(rows.map(function(r){ return String(r.nr || "") + "|" + String(r.name || ""); }));
+  var tours = spedOvUniq(rows.map(function(r){ return r.tour; }));
+  var trucks = spedOvUniq(rows.map(function(r){ return r.lkw; }));
+  var days = spedOvUniq(rows.map(function(r){ return r.iso; }));
+  el.innerHTML = spedOvMetric("Fahrten", rows.length, "im Filter", "#7c3aed")
+    + spedOvMetric("Speditionen", groups.length, "Obergruppen", "#c2410c")
+    + spedOvMetric("Untergruppen", units.length, "eingesetzte Linien", "#0f766e")
+    + spedOvMetric("Touren", tours.length, "verschiedene Touren", "#2563eb")
+    + spedOvMetric("LKW", trucks.length, "verschiedene Fahrzeuge", "#15803d")
+    + spedOvMetric("Liefertage", days.length, "Tage mit Einsatz", "#be123c");
+}
+
+function spedOvGroupCards(rows){
+  var by = {};
+  rows.forEach(function(r){
+    var g = spedOvGroup(r);
+    if(!by[g]) by[g] = {name:g,count:0,units:{},tours:{},trucks:{},days:{}};
+    var x=by[g]; x.count++;
+    x.units[String(r.nr||"")+"|"+String(r.name||"")] = {nr:r.nr||"",name:r.name||""};
+    if(r.tour) x.tours[r.tour]=1;
+    if(r.lkw) x.trucks[r.lkw]=1;
+    if(r.iso) x.days[r.iso]=1;
+  });
+  var arr = Object.keys(by).map(function(k){return by[k];}).sort(function(a,b){return b.count-a.count || a.name.localeCompare(b.name);});
+  if(!arr.length) return '<div style="color:#94a3b8;padding:28px;text-align:center;">Keine Daten im gewählten Zeitraum.</div>';
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;">' + arr.map(function(x){
+    var c=spedOvColor(x.name,1), bg=spedOvColor(x.name,.08), border=spedOvColor(x.name,.22);
+    var share = rows.length ? Math.round(x.count/rows.length*100) : 0;
+    var units=Object.keys(x.units).map(function(k){return x.units[k];}).sort(function(a,b){return String(a.nr).localeCompare(String(b.nr),undefined,{numeric:true});});
+    var unitText = units.slice(0,4).map(function(u){return (u.nr ? u.nr+' · ' : '')+u.name;}).join(' · ');
+    if(units.length>4) unitText += ' · +'+(units.length-4)+' weitere';
+    return '<button type="button" data-group="'+spedOvEsc(x.name)+'" onclick="spedOvChooseGroup(this.dataset.group)" style="text-align:left;width:100%;border:1px solid '+border+';background:linear-gradient(180deg,#fff 0%,'+bg+' 100%);border-radius:12px;padding:12px 13px;cursor:pointer;font-family:inherit;box-shadow:0 2px 8px rgba(15,23,42,.04);">'
+      + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">'
+      + '<div><div style="font-size:13px;font-weight:950;color:#0f172a;">'+spedOvEsc(x.name)+'</div><div style="font-size:10px;color:#64748b;margin-top:2px;">'+spedOvEsc(unitText || 'keine Untergruppe')+'</div></div>'
+      + '<div style="text-align:right;"><div style="font-size:22px;font-weight:950;color:'+c+';line-height:1;">'+x.count+'</div><div style="font-size:9px;font-weight:900;color:#94a3b8;margin-top:2px;">'+share+' %</div></div>'
+      + '</div>'
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;font-size:9px;font-weight:850;color:#475569;">'
+      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+Object.keys(x.tours).length+' Touren</span>'
+      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+Object.keys(x.trucks).length+' LKW</span>'
+      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+Object.keys(x.days).length+' Tage</span>'
+      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+units.length+' Untergruppen</span>'
+      + '</div></button>';
+  }).join('') + '</div>';
+}
+
+function spedOvDistribution(rows){
+  var byWd={}, byTour={};
+  rows.forEach(function(r){
+    var wd=String(r.wd||"Unbekannt"), t=String(r.tour||"ohne Tour");
+    byWd[wd]=(byWd[wd]||0)+1; byTour[t]=(byTour[t]||0)+1;
+  });
+  var wdOrder=["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
+  var wds=Object.keys(byWd).sort(function(a,b){return wdOrder.indexOf(a)-wdOrder.indexOf(b);});
+  var tours=Object.keys(byTour).map(function(k){return [k,byTour[k]];}).sort(function(a,b){return b[1]-a[1] || a[0].localeCompare(b[0],undefined,{numeric:true});}).slice(0,8);
+  var maxWd=Math.max.apply(null,[1].concat(wds.map(function(k){return byWd[k];})));
+  var maxTour=Math.max.apply(null,[1].concat(tours.map(function(x){return x[1];})));
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;">'
+    + '<div style="background:#fff;border:1px solid #dbe4ee;border-radius:12px;padding:12px 14px;box-shadow:0 2px 8px rgba(15,23,42,.035);"><div style="font-size:11px;font-weight:950;color:#0f172a;margin-bottom:6px;">Wochentage</div>'
+    + (wds.length ? wds.map(function(k){return spedOvBar(k,byWd[k],maxWd,"#7c3aed", rows.length ? Math.round(byWd[k]/rows.length*100)+' %' : '');}).join('') : '<div style="color:#94a3b8;font-size:11px;">Keine Daten</div>') + '</div>'
+    + '<div style="background:#fff;border:1px solid #dbe4ee;border-radius:12px;padding:12px 14px;box-shadow:0 2px 8px rgba(15,23,42,.035);"><div style="font-size:11px;font-weight:950;color:#0f172a;margin-bottom:6px;">Top Touren</div>'
+    + (tours.length ? tours.map(function(x){return spedOvBar('Tour '+x[0],x[1],maxTour,"#c2410c",'Fahrten');}).join('') : '<div style="color:#94a3b8;font-size:11px;">Keine Daten</div>') + '</div></div>';
+}
+
+function spedOvDetailTable(rows){
+  var sorted = rows.slice().sort(function(a,b){
+    var d=String(b.iso||"").localeCompare(String(a.iso||""));
+    if(d) return d;
+    return String(a.zeit||"").localeCompare(String(b.zeit||""));
+  });
+  var total = sorted.length, limit = 300;
+  var shown = sorted.slice(0,limit);
+  var body = shown.map(function(r){
+    var g=spedOvGroup(r), col=spedOvColor(g,1);
+    return '<tr>'
+      + '<td style="padding:8px 9px;border-bottom:1px solid #eef2f6;white-space:nowrap;font-weight:850;color:#0f172a;">'+spedOvEsc(r.datum||'')+'</td>'
+      + '<td style="padding:8px 9px;border-bottom:1px solid #eef2f6;white-space:nowrap;color:#64748b;">'+spedOvEsc(r.wd||'')+'</td>'
+      + '<td style="padding:8px 9px;border-bottom:1px solid #eef2f6;"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+col+';margin-right:6px;"></span><b>'+spedOvEsc(g)+'</b></td>'
+      + '<td style="padding:8px 9px;border-bottom:1px solid #eef2f6;color:#475569;"><span style="font-weight:900;color:#64748b;">'+spedOvEsc(r.nr||'')+'</span>'+(r.nr&&r.name?' · ':'')+spedOvEsc(r.name||'')+'</td>'
+      + '<td style="padding:8px 9px;border-bottom:1px solid #eef2f6;text-align:center;font-weight:950;color:#7c3aed;">'+spedOvEsc(r.tour||'—')+'</td>'
+      + '<td style="padding:8px 9px;border-bottom:1px solid #eef2f6;text-align:center;font-weight:850;color:#334155;">'+spedOvEsc(r.lkw||'—')+'</td>'
+      + '<td style="padding:8px 9px;border-bottom:1px solid #eef2f6;text-align:center;font-variant-numeric:tabular-nums;font-weight:900;color:#c2410c;">'+spedOvEsc(r.zeit||'—')+'</td>'
+      + '</tr>';
+  }).join('');
+  return '<div style="background:#fff;border:1px solid #dbe4ee;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(15,23,42,.035);">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;border-bottom:1px solid #e5eaf0;background:#fbfcfe;">'
+    + '<div><div style="font-size:12px;font-weight:950;color:#0f172a;">Fahrten im Detail</div><div style="font-size:10px;color:#94a3b8;margin-top:1px;">Datum · Spedition · Untergruppe · Tour · LKW · Abfahrt</div></div>'
+    + '<div style="font-size:10px;font-weight:850;color:#64748b;">'+total+' Treffer'+(total>limit?' · '+limit+' angezeigt':'')+'</div></div>'
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:860px;">'
+    + '<thead><tr style="background:#f8fafc;color:#64748b;text-transform:uppercase;letter-spacing:.35px;font-size:9px;">'
+    + '<th style="padding:8px 9px;text-align:left;">Datum</th><th style="padding:8px 9px;text-align:left;">Tag</th><th style="padding:8px 9px;text-align:left;">Spedition</th><th style="padding:8px 9px;text-align:left;">Untergruppe</th><th style="padding:8px 9px;text-align:center;">Tour</th><th style="padding:8px 9px;text-align:center;">LKW</th><th style="padding:8px 9px;text-align:center;">Abfahrt</th></tr></thead>'
+    + '<tbody>'+(body || '<tr><td colspan="7" style="padding:35px;text-align:center;color:#94a3b8;">Keine Fahrten gefunden.</td></tr>')+'</tbody></table></div></div>';
+}
+
+function spedOvChooseGroup(group){
+  SPED_OV_FILTER = group || "all";
+  var s=document.getElementById("sped-filter"); if(s) s.value=SPED_OV_FILTER;
+  spedRender();
+}
+
+function spedOvSearch(v){ SPED_OV_SEARCH = String(v || "").trim(); spedRender(); }
+
+function spedOvExportExcel(){
+  var rows=spedOvFilteredRows(true);
+  if(!rows.length){ alert("Keine Spediteur-Daten im aktuellen Filter."); return; }
+  if(typeof XLSX === "undefined"){ alert("Excel-Modul nicht geladen."); return; }
+  var data = rows.slice().sort(function(a,b){return String(a.iso||"").localeCompare(String(b.iso||""));}).map(function(r){
+    return {Datum:r.datum||"",Wochentag:r.wd||"",Spedition:spedOvGroup(r),Nummer:r.nr||"",Untergruppe:r.name||"",Tour:r.tour||"",LKW:r.lkw||"",Abfahrt:r.zeit||"",Quelle:r.quelle||""};
+  });
+  var wb=XLSX.utils.book_new();
+  var ws=XLSX.utils.json_to_sheet(data);
+  ws['!cols']=[{wch:12},{wch:13},{wch:24},{wch:10},{wch:30},{wch:10},{wch:10},{wch:10},{wch:30}];
+  XLSX.utils.book_append_sheet(wb,ws,"Fahrten");
+  XLSX.writeFile(wb,"Spediteure_"+(SPED_OV_JAHR||"alle")+"_"+(SPED_OV_MONAT==="all"?"alle_Monate":SPED_OV_MONAT)+".xlsx");
+}
+
+function spedRender(){
+  var content=document.getElementById("sped-content");
+  if(!content) return;
+  var all=spedOvRowsBase();
+  if(!all.length){
+    var st=document.getElementById("sped-stats"); if(st) st.innerHTML="";
+    content.innerHTML='<div style="color:#94a3b8;padding:70px;text-align:center;font-size:14px;">Keine Spediteur-Daten – bitte Touren-Dateien (Excel) in Streamlit hochladen.</div>';
+    return;
+  }
+  var base=spedOvFilteredRows(false);
+  var rows=spedOvFilteredRows(true);
+  spedOvRenderStats(base);
+  var period = SPED_OV_MONAT === "all" ? String(SPED_OV_JAHR || "Alle Jahre") : spedOvMonthName(SPED_OV_MONAT)+" "+String(SPED_OV_JAHR||"");
+  content.innerHTML =
+    '<div style="max-width:1500px;margin:0 auto;">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">'
+    + '<div><div style="font-size:15px;font-weight:950;color:#0f172a;">Übersicht '+spedOvEsc(period)+'</div><div style="font-size:10px;color:#64748b;margin-top:2px;">Karten anklicken, um direkt nach einer Spedition zu filtern.</div></div>'
+    + '<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;">'
+    + '<div style="position:relative;"><span style="position:absolute;left:10px;top:8px;color:#94a3b8;">⌕</span><input value="'+spedOvEsc(SPED_OV_SEARCH)+'" oninput="spedOvSearch(this.value)" placeholder="Tour, LKW, Spedition suchen…" style="width:250px;max-width:65vw;padding:8px 10px 8px 28px;border:1.5px solid #cbd5e1;border-radius:8px;font:800 11px Segoe UI,Arial;color:#334155;outline:none;background:#fff;"></div>'
+    + '<button onclick="spedOvExportExcel()" style="padding:8px 11px;border:1.5px solid #86efac;border-radius:8px;background:#f0fdf4;color:#166534;font:900 11px Segoe UI,Arial;cursor:pointer;">💾 Excel</button>'
+    + (SPED_OV_FILTER!=="all" ? '<button onclick="spedOvChooseGroup(\'all\')" style="padding:8px 11px;border:1.5px solid #ddd6fe;border-radius:8px;background:#f5f3ff;color:#6d28d9;font:900 11px Segoe UI,Arial;cursor:pointer;">Filter zurücksetzen</button>' : '')
+    + '</div></div>'
+    + '<div style="font-size:10px;font-weight:950;color:#64748b;text-transform:uppercase;letter-spacing:.45px;margin:0 0 7px 2px;">Speditionen im Zeitraum</div>'
+    + spedOvGroupCards(base)
+    + '<div style="font-size:10px;font-weight:950;color:#64748b;text-transform:uppercase;letter-spacing:.45px;margin:15px 0 7px 2px;">Verteilung</div>'
+    + spedOvDistribution(base)
+    + '<div style="margin-top:12px;">'+spedOvDetailTable(rows)+'</div>'
+    + '</div>';
+}
+
+function spedInit(){
+  var all=spedOvRowsBase();
+  var years=spedOvUniq(all.map(function(r){return String(r.jahr||"");})).sort().reverse();
+  var ySel=document.getElementById("sped-year");
+  var mSel=document.getElementById("sped-month");
+  var fSel=document.getElementById("sped-filter");
+  if(!years.length){ spedRender(); return; }
+
+  var now=new Date(), cy=String(now.getFullYear()), cm=String(now.getMonth()+1).padStart(2,'0');
+  if(!SPED_OV_JAHR || years.indexOf(SPED_OV_JAHR)<0) SPED_OV_JAHR = years.indexOf(cy)>=0 ? cy : years[0];
+  if(SPED_OV_MONAT === "all"){
+    var hasCurrent = all.some(function(r){return String(r.jahr||"")===SPED_OV_JAHR && String(r.monat||"")===cm;});
+    if(SPED_OV_JAHR===cy && hasCurrent) SPED_OV_MONAT=cm;
+  }
+
+  if(ySel){ ySel.innerHTML=years.map(function(y){return '<option value="'+spedOvEsc(y)+'">'+spedOvEsc(y)+'</option>';}).join(''); ySel.value=SPED_OV_JAHR; }
+  if(mSel){
+    mSel.innerHTML='<option value="all">Alle Monate</option>'+Array.from({length:12},function(_,i){var m=String(i+1).padStart(2,'0');return '<option value="'+m+'">'+spedOvMonthName(m)+'</option>';}).join('');
+    mSel.value=SPED_OV_MONAT;
+  }
+  var groups=spedOvUniq(all.filter(function(r){return String(r.jahr||"")===SPED_OV_JAHR;}).map(spedOvGroup)).sort();
+  if(groups.indexOf(SPED_OV_FILTER)<0) SPED_OV_FILTER="all";
+  if(fSel){ fSel.innerHTML='<option value="all">Alle Speditionen</option>'+groups.map(function(g){return '<option value="'+spedOvEsc(g)+'">'+spedOvEsc(g)+'</option>';}).join(''); fSel.value=SPED_OV_FILTER; }
+  spedRender();
+}
+
+function spedSetJahr(v){
+  SPED_OV_JAHR=String(v||""); SPED_OV_FILTER="all"; SPED_OV_SEARCH="";
+  var all=spedOvRowsBase(), groups=spedOvUniq(all.filter(function(r){return String(r.jahr||"")===SPED_OV_JAHR;}).map(spedOvGroup)).sort();
+  var fSel=document.getElementById("sped-filter");
+  if(fSel){ fSel.innerHTML='<option value="all">Alle Speditionen</option>'+groups.map(function(g){return '<option value="'+spedOvEsc(g)+'">'+spedOvEsc(g)+'</option>';}).join(''); fSel.value='all'; }
+  spedRender();
+}
+function spedSetMonat(v){ SPED_OV_MONAT=String(v||"all"); SPED_OV_SEARCH=""; spedRender(); }
+function spedSetSped(v){ SPED_OV_FILTER=String(v||"all"); SPED_OV_SEARCH=""; spedRender(); }
+"""
+
+
+def _patch_sped_javascript(source: str) -> str:
+    """Erweitert den Spediteur-Übersichtstab, ohne den Graph-Tab anzutasten."""
+    if "Spediteure: erweiterte Übersicht" in source:
+        return source
+    return source + "\n" + _SPED_OVERVIEW_RUNTIME_PATCH
+
 # _static_payload_text("_JS_FABEW") wurde fuer Cloud-Stabilitaet nach nfc_assets ausgelagert.
 
 # _static_payload_text("_JS_BUS") wurde fuer Cloud-Stabilitaet nach nfc_assets ausgelagert.
@@ -5404,7 +5675,7 @@ def _dashboard_javascript_parts() -> dict:
         'fw_graph': _static_payload_text("_JS_FW_GRAPH"),
         'verstoss': _static_payload_text("_JS_VERSTOSS"),
         'knapp': _JS_KNAPP,
-        'sped': _static_payload_text("_JS_SPED"),
+        'sped': _patch_sped_javascript(_static_payload_text("_JS_SPED")),
         'fabew': _static_payload_text("_JS_FABEW"),
         'bus': _patch_bus_javascript_contacts(_static_payload_text("_JS_BUS")),
         'arzt': _static_payload_text("_JS_ARZT"),
@@ -8437,7 +8708,7 @@ document.addEventListener('keydown',function(e){{if(e.key==='Escape')closeBuildI
           <div style="width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#1e6091 0%,#2f80b7 100%);display:flex;align-items:center;justify-content:center;font-size:17px;">&#128666;</div>
           <div>
             <div style="font-size:14px;font-weight:900;color:#0f172a;letter-spacing:-.2px;">Spediteure</div>
-            <div style="font-size:11px;color:#64748b;">Tourenpl&auml;ne nach Spedition &middot; Jahr / Monat / Untername</div>
+            <div style="font-size:11px;color:#64748b;">Übersicht nach Spedition &middot; Tour &middot; LKW &middot; Wochentag</div>
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:8px;">
