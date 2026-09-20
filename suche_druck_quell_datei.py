@@ -69,7 +69,7 @@ st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
 APP_CACHE_VERSION = "hupa-dashboard-2026-09-20-v56-current-month-marker"
-EXTRA_CACHE_VERSION = "extra-parser-2026-09-15-hupa-bergen"
+EXTRA_CACHE_VERSION = "extra-parser-2026-09-20-timerec-netto-fix"
 APP_DISPLAY_VERSION = "53"
 APP_DISPLAY_NAME = "NFC Generator"
 
@@ -4945,7 +4945,16 @@ def parse_timerecording_csv(uploaded_file) -> str:
     idx_beg    = col(["schichtbeginn", "beginn"])
     idx_end    = col(["schichtende", "ende"])
     idx_dauer  = col(["schichtdauer"])
-    idx_profil = col(["arbeitszeit nach arbeitszeitprofil"])
+    # YellowFox benennt diese Spalte je nach Export/Version unterschiedlich.
+    # Die breite Erkennung verhindert, dass die komplette Netto-Auswertung leer bleibt.
+    idx_profil = col([
+        "arbeitszeit nach arbeitszeitprofil",
+        "arbeitszeit nach profil",
+        "arbeitszeitprofil",
+        "nettoarbeitszeit",
+        "netto arbeitszeit",
+        "netto-arbeitszeit",
+    ])
     idx_lkw    = col(["fahrzeuge", "terminal"])
     idx_lenk   = col(["lenkzeit"])
     idx_bereit = col(["bereitschaft"])
@@ -5014,10 +5023,27 @@ def parse_timerecording_csv(uploaded_file) -> str:
         s = (s or "").strip()
         if not s or s.casefold() in ("nan", "none", "nat"):
             return ""
-        m = re.search(r'(\d{1,2}):(\d{2})', s)
+        # Auch dreistellige Stundenwerte (z.B. Summen) sauber übernehmen.
+        m = re.search(r'(\d{1,3}):(\d{2})', s)
         if m:
             return f"{int(m.group(1)):02d}:{m.group(2)}"
         return s
+
+    def duration_minutes(value):
+        """HH:MM/HH:MM:SS robust in Minuten umwandeln; ungültig -> 0."""
+        value = fmt_duration(value)
+        m = re.search(r'(\d{1,3}):(\d{2})', str(value or ""))
+        if not m:
+            return 0
+        hh = int(m.group(1))
+        mm = int(m.group(2))
+        if mm < 0 or mm > 59:
+            return 0
+        return hh * 60 + mm
+
+    def minutes_duration(total_minutes):
+        total_minutes = max(0, int(total_minutes or 0))
+        return f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
 
     def cell(r, idx):
         return (r[idx] or "").strip() if 0 <= idx < len(r) else ""
@@ -5056,6 +5082,20 @@ def parse_timerecording_csv(uploaded_file) -> str:
         arbeit = fmt_duration(cell(r, idx_arbeit))
         card   = cell(r, idx_card)
         ma_nr  = cell(r, idx_ma)
+
+        # Fallback für YellowFox-Exporte ohne/mit leerer Spalte
+        # "Arbeitszeit nach Arbeitszeitprofil": Netto = Schichtzeit - Pause
+        # und damit gemäß der bisherigen Auswertung Lenkzeit + Arbeitszeit + Bereitschaft.
+        profil_quelle = "Arbeitszeitprofil" if profil else ""
+        if not profil:
+            activity_minutes = (
+                duration_minutes(lenk)
+                + duration_minutes(arbeit)
+                + duration_minutes(bereit)
+            )
+            if activity_minutes > 0:
+                profil = minutes_duration(activity_minutes)
+                profil_quelle = "berechnet aus Lenkzeit + Arbeitszeit + Bereitschaft"
 
         if lkw.casefold() in ("nan", "none"):
             lkw = ""
@@ -5105,6 +5145,10 @@ def parse_timerecording_csv(uploaded_file) -> str:
             "ende_naechster_tag": next_day,
             "schichtdauer": dauer,
             "profil": profil,
+            "profil_quelle": profil_quelle,
+            "lenkzeit": lenk,
+            "arbeitszeit": arbeit,
+            "bereitschaft": bereit,
             "lkw": lkw,
             "hat_schichtdaten": True,
             "fahrerschluessel": card,
@@ -10748,6 +10792,39 @@ function samToggle(el) {{
 
 
 {fa_js_code}
+
+// ── Fahrerauswertung-Dropdown: 10H-Touren als eigener Menüpunkt ─────────────
+function buildFaDdMenu() {{
+  var menu = document.getElementById("ddmenu-fa");
+  if (!menu) return;
+  var is10h = (currentArea === "fa" && window.FA_10H_MODE === true);
+  var items = [
+    {{ mode:"schichten", label:"Schichten / Tachograph", active:(currentArea === "fa" && !is10h) }},
+    {{ mode:"10h", label:"10H Touren", active:is10h }},
+    {{ mode:"bewertung", label:"Fahrerbewertung", active:(currentArea === "fa_bewertung") }}
+  ];
+  menu.innerHTML = items.map(function(it) {{
+    return "<div class='dd-item" + (it.active ? " active" : "") + "' data-mode='" + it.mode
+      + "' onclick='ddSelectFaMode(this.dataset.mode)'>" + it.label + "</div>";
+  }}).join("");
+}}
+
+function ddSelectFaMode(mode) {{
+  document.querySelectorAll(".nav-dd").forEach(function(d) {{ d.classList.remove("open"); }});
+  if (mode === "bewertung") {{
+    showArea("fa_bewertung");
+    return;
+  }}
+  showArea("fa");
+  setTimeout(function() {{
+    if (mode === "10h") {{
+      if (typeof window.faShow10hTours === "function") window.faShow10hTours("");
+    }} else {{
+      if (typeof window.faShowFahrerUebersicht === "function") window.faShowFahrerUebersicht();
+    }}
+    if (typeof buildFaDdMenu === "function") buildFaDdMenu();
+  }}, 0);
+}}
 
 {wa_js_code}
 
