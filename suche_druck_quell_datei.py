@@ -68,7 +68,7 @@ _boot_log("03 Standardimporte bereit; pandas wird verzögert geladen")
 st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
-APP_CACHE_VERSION = "hupa-dashboard-2026-09-18-v55-kisoft-kundenhinweise"
+APP_CACHE_VERSION = "hupa-dashboard-2026-09-20-v56-current-month-marker"
 EXTRA_CACHE_VERSION = "extra-parser-2026-09-15-hupa-bergen"
 APP_DISPLAY_VERSION = "53"
 APP_DISPLAY_NAME = "NFC Generator"
@@ -6896,6 +6896,10 @@ function hupaRenderCurveCompare(){
   var selectedYear=hupaSelectedYear();
   var years=compareMode?HUPA_COMPARE_YEARS.slice():(selectedYear?[selectedYear]:[]);
   var aggs={}; years.forEach(function(y){aggs[y]=hupaAggregate(hupaRowsForYear(y));});
+  var hupaNow=new Date();
+  var hupaCurrentYear=hupaNow.getFullYear();
+  var hupaCurrentMonth=hupaNow.getMonth()+1;
+  var hupaShowsCurrentYear=years.indexOf(hupaCurrentYear)>=0;
 
   var ct=document.getElementById("hupa-curve-table"); if(ct) ct.innerHTML=hupaCompareTable(years,aggs,dest);
   var tableTitle=document.getElementById("hupa-curve-table-title");
@@ -6907,9 +6911,13 @@ function hupaRenderCurveCompare(){
     : (dest==="Gesamt"?"Gesamt-TKT":dest)+" – Monatskurve "+(selectedYear||"");
 
   var sub=document.getElementById("hupa-chart-sub");
-  if(sub) sub.textContent=compareMode
-    ? (years.length>1?(years.join(" vs. ")+" · Kurven übereinander"):(years.length?String(years[0])+" · weiteres Jahr oben auswählen":"Keine Vergleichsjahre"))
-    : (selectedYear?String(selectedYear)+" · Jahresvergleich über die Auswahl oben zuschaltbar":"Kein Jahr ausgewählt");
+  if(sub){
+    var subText=compareMode
+      ? (years.length>1?(years.join(" vs. ")+" · Kurven übereinander"):(years.length?String(years[0])+" · weiteres Jahr oben auswählen":"Keine Vergleichsjahre"))
+      : (selectedYear?String(selectedYear)+" · Jahresvergleich über die Auswahl oben zuschaltbar":"Kein Jahr ausgewählt");
+    if(hupaShowsCurrentYear) subText+=" · ⚠ "+HUPA_MONTH_NAMES[hupaCurrentMonth-1]+" "+hupaCurrentYear+" läuft noch – Wert unvollständig";
+    sub.textContent=subText;
+  }
 
   var badge=document.getElementById("hupa-compare-label");
   if(badge) badge.textContent=compareMode
@@ -6936,12 +6944,27 @@ function hupaRenderCurveCompare(){
       labels:HUPA_MONTH_NAMES.slice(),
       datasets:years.map(function(y,i){
         var c=HUPA_YEAR_COLORS[Math.max(0,allYears.indexOf(y))%HUPA_YEAR_COLORS.length]||HUPA_YEAR_COLORS[i%HUPA_YEAR_COLORS.length];
-        return {label:String(y),data:HUPA_MONTH_NAMES.map(function(_,idx){return hupaValueForMonth(aggs[y],idx+1,dest);}),borderColor:c,backgroundColor:c,borderWidth:i===0?3:2.4,pointRadius:4,pointHoverRadius:6,spanGaps:false,tension:.25};
+        var isCurrentYear=(+y===hupaCurrentYear);
+        var radii=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? 8 : 4;});
+        var hoverRadii=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? 10 : 6;});
+        var pointStyles=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? "triangle" : "circle";});
+        var pointBg=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? "#fff7ed" : c;});
+        var pointBorder=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? "#f97316" : c;});
+        var pointBorderWidths=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? 3 : 1.5;});
+        return {
+          label:String(y),
+          data:HUPA_MONTH_NAMES.map(function(_,idx){return hupaValueForMonth(aggs[y],idx+1,dest);}),
+          borderColor:c,backgroundColor:c,borderWidth:i===0?3:2.4,
+          pointRadius:radii,pointHoverRadius:hoverRadii,pointStyle:pointStyles,
+          pointBackgroundColor:pointBg,pointBorderColor:pointBorder,pointBorderWidth:pointBorderWidths,
+          segment:{borderDash:function(ctx){return isCurrentYear && ctx.p1DataIndex===hupaCurrentMonth-1 ? [7,5] : undefined;}},
+          spanGaps:false,tension:.25
+        };
       })
     },
     options:{
       responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
-      plugins:{legend:{display:compareMode,position:"bottom",labels:{usePointStyle:true,boxWidth:9,font:{weight:"800"}}},tooltip:{callbacks:{label:function(c){return c.dataset.label+": "+(c.raw==null?"–":hupaNum(c.raw)+" TKT");}}}},
+      plugins:{legend:{display:compareMode,position:"bottom",labels:{usePointStyle:true,boxWidth:9,font:{weight:"800"}}},tooltip:{callbacks:{label:function(c){var running=(+c.dataset.label===hupaCurrentYear && c.dataIndex===hupaCurrentMonth-1);return c.dataset.label+": "+(c.raw==null?"–":hupaNum(c.raw)+" TKT")+(running?" · laufender Monat, noch nicht vollständig":"");}}}},
       scales:{y:{beginAtZero:true,title:{display:true,text:"TKT"},ticks:{callback:function(v){return hupaNum(v);}},grid:{color:"rgba(100,116,139,.12)"}},x:{grid:{display:false}}}
     }
   });
