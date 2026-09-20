@@ -5284,10 +5284,10 @@ function spedOvGroupCards(rows){
       + '<div style="text-align:right;"><div style="font-size:22px;font-weight:950;color:'+c+';line-height:1;">'+x.count+'</div><div style="font-size:9px;font-weight:900;color:#94a3b8;margin-top:2px;">'+share+' %</div></div>'
       + '</div>'
       + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;font-size:9px;font-weight:850;color:#475569;">'
-      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+Object.keys(x.tours).length+' Touren</span>'
-      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+Object.keys(x.trucks).length+' LKW</span>'
-      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+Object.keys(x.days).length+' Tage</span>'
-      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+units.length+' Untergruppen</span>'
+      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+Object.keys(x.tours).length+' verschiedene Touren</span>'
+      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+Object.keys(x.trucks).length+' LKW von Edeka</span>'
+      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+Object.keys(x.days).length+' Tage gefahren</span>'
+      + '<span style="padding:4px 6px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;">'+units.length+' Untergruppen im Tourenplan</span>'
       + '</div></button>';
   }).join('') + '</div>';
 }
