@@ -7696,7 +7696,13 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 #btn-suche.active{{background:linear-gradient(180deg,#f6dc67 0%,#e6be22 100%);border-color:#d5ac10;color:#334155;box-shadow:0 3px 10px rgba(214,172,16,.28)}}
 #btn-suche.active .dd-arrow{{filter:none;opacity:.9}}
 .dd-arrow{{font-size:9px;opacity:.75;transition:transform .15s}}
-.inst-label{{font-size:9px;font-weight:700;opacity:1;background:#dbe5f0;border:1px solid #c0cad8;border-radius:5px;padding:1px 5px;margin:0 2px 0 4px;white-space:nowrap;color:#4b5d73}}
+.inst-label{{
+  display:inline-block;vertical-align:middle;
+  max-width:82px;overflow:hidden;text-overflow:ellipsis;
+  font-size:9px;font-weight:700;opacity:1;background:#dbe5f0;
+  border:1px solid #c0cad8;border-radius:5px;padding:1px 5px;
+  margin:0 2px 0 4px;white-space:nowrap;color:#4b5d73
+}}
 .nav-dd.open .dd-arrow{{transform:rotate(180deg)}}
 .dd-menu{{
   display:none;
@@ -7726,6 +7732,17 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 .topnav-stamp{{
   font-size:10px;font-weight:800;color:#5b6b80;white-space:nowrap;
   position:sticky;right:0;flex-shrink:0;padding:0 2px 0 4px;background:#e4e9ef;
+}}
+@media(max-width:1850px){{
+  .topnav{{padding:0 8px;gap:3px}}
+  .topnav-logo{{height:24px}}
+  .nav-sep{{margin:0 2px}}
+  .nav-btn,.nav-dd-btn{{padding:5px 7px;font-size:11px}}
+  .inst-label{{max-width:68px;font-size:8px;padding:1px 4px;margin-left:3px}}
+}}
+@media(max-width:1550px){{
+  .nav-btn,.nav-dd-btn{{padding:5px 6px;font-size:10.5px}}
+  #inst-label-suche{{display:none}}
 }}
 .build-info-overlay{{display:none;position:fixed;inset:0;z-index:200000;background:rgba(15,23,42,.55);padding:24px;align-items:center;justify-content:center}}
 .build-info-overlay.open{{display:flex}}
@@ -7774,7 +7791,7 @@ iframe.active{{display:block}}
   </div>
   <div class="nav-dd" id="dd-vz">
     <button class="nav-dd-btn" id="btn-vz" onclick="ddToggle('vz',event)">
-      &#128703; Waschen &amp; Tanken <span id="inst-label-vz"></span><span class="dd-arrow">&#9660;</span>
+      &#128703; Waschen &amp; Tanken <span class="dd-arrow">&#9660;</span>
     </button>
     <div class="dd-menu" id="ddmenu-vz"></div>
   </div>
@@ -8965,15 +8982,18 @@ function ddToggle(area, e) {{
 }}
 
 function updateInstLabels() {{
-  if(INSTANCES.length <= 1) return;  // nur anzeigen wenn mehrere Instanzen
-  var name = INSTANCES[currentInst].name;
-  ["suche","vz"].forEach(function(area) {{
-    var el = document.getElementById("inst-label-"+area);
-    if(el) {{
-      el.textContent = name;
-      el.className = "inst-label";
-    }}
-  }});
+  var el = document.getElementById("inst-label-suche");
+  if(!el) return;
+  if(INSTANCES.length <= 1) {{
+    el.textContent = "";
+    el.className = "";
+    el.removeAttribute("title");
+    return;
+  }}
+  var name = (INSTANCES[currentInst] && INSTANCES[currentInst].name) ? INSTANCES[currentInst].name : "";
+  el.textContent = name;
+  el.className = "inst-label";
+  el.title = name;
 }}
 
 function ddSelect(area, instIdx) {{
