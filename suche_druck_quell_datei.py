@@ -6,7 +6,7 @@
 # Starten:  streamlit run app.py
 # =============================================================================
 
-from __future__ import annotations
+# (kein "from __future__"-Import: Annotationen mit pd.* sind als Strings notiert)
 
 # Native Bibliotheken auf einen Thread begrenzen. Das reduziert Startspitzen
 # und vermeidet instabile OpenMP-/BLAS-Konstellationen auf kleinen Cloud-VMs.
@@ -2738,7 +2738,7 @@ def norm_de_py(s: str) -> str:
     return " ".join(x.split())
 
 
-def build_key_map(df: pd.DataFrame) -> dict:
+def build_key_map(df: "pd.DataFrame") -> dict:
     """Liest alte und neue Schluesseldateien robust ein.
 
     Neues Format:
@@ -2807,7 +2807,7 @@ def build_key_map(df: pd.DataFrame) -> dict:
     return {csb: keys[0] if len(keys) == 1 else keys for csb, keys in collected.items()}
 
 
-def build_berater_map(df: pd.DataFrame) -> dict:
+def build_berater_map(df: "pd.DataFrame") -> dict:
     out = {}
     for row in df.itertuples(index=False, name=None):
         v = ("" if len(row) < 1 or pd.isna(row[0]) else str(row[0])).strip()
@@ -2821,7 +2821,7 @@ def build_berater_map(df: pd.DataFrame) -> dict:
     return out
 
 
-def build_berater_csb_map(df: pd.DataFrame) -> dict:
+def build_berater_csb_map(df: "pd.DataFrame") -> dict:
     out = {}
     for row in df.itertuples(index=False, name=None):
         fach = str(row[0]).strip() if len(row) > 0 and not pd.isna(row[0]) else ""
@@ -2899,7 +2899,7 @@ def build_winter_map(excel_file_obj) -> dict:
     # bei 10k+ Zeilen war das mit 200-500ms der teuerste einzelne Schritt.
     sub = dfw[[csb_col, tour_col, lf_col]]
 
-    def _vec_norm_digits(series: pd.Series) -> pd.Series:
+    def _vec_norm_digits(series: "pd.Series") -> "pd.Series":
         s = series.astype(str)
         s = s.str.replace(r"\.0$", "", regex=True)
         s = s.str.replace(r"\D", "", regex=True)
@@ -3259,7 +3259,7 @@ def generate_suche_html(excel_file, key_file, logo_file,
 
     tour_dict: dict = {}
 
-    def kunden_sammeln(df: pd.DataFrame):
+    def kunden_sammeln(df: "pd.DataFrame"):
         column_index = {str(col): idx for idx, col in enumerate(df.columns)}
         if not column_index:
             return
