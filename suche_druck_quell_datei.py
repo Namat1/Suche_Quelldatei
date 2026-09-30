@@ -6767,9 +6767,6 @@ def _hupa_panels_html() -> str:
   #panel-hupa .hp-scroll::-webkit-scrollbar-track{background:#f1f5f9}
   #panel-hupa .hp-scroll::-webkit-scrollbar-thumb{background:#c4b5fd;border:3px solid #f1f5f9;border-radius:999px}
   #panel-hupa .hp-scroll::-webkit-scrollbar-thumb:hover{background:#a78bfa}
-  #btn-hupa{background:linear-gradient(180deg,#faf5ff 0%,#f3e8ff 100%);border-color:#d8b4fe;color:#6b21a8;font-weight:900}
-  #btn-hupa:hover{background:linear-gradient(180deg,#f3e8ff 0%,#e9d5ff 100%);border-color:#c084fc;color:#581c87}
-  #btn-hupa.active{background:linear-gradient(180deg,#7e22ce 0%,#6b21a8 100%);border-color:#581c87;color:#fff;box-shadow:0 3px 10px rgba(107,33,168,.28)}
   .hp-shell{width:100%;max-width:1728px;margin:0 auto;flex:1;min-height:0;height:100%;display:flex;flex-direction:column}
   .hp-card{background:#fff;border:1px solid #d8dee7;border-radius:14px;box-shadow:0 5px 20px rgba(76,29,149,.10);overflow:hidden}
   .hp-head{display:flex;align-items:center;gap:13px;padding:17px 20px;flex:none;background:linear-gradient(110deg,#faf5ff 0%,#fff7ed 48%,#f0fdf4 100%);border-bottom:1px solid #e8e0ef;flex-wrap:wrap}
