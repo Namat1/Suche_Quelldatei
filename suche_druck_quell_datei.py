@@ -8008,6 +8008,17 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 .nav-rows .nav-dd{{width:100%}}
 .nav-rows .nav-btn,.nav-rows .nav-dd-btn{{width:100%;justify-content:center;text-align:center;padding:7px 6px;font-size:11.5px;display:flex;align-items:center;gap:4px}}
 .nav-logo-side{{width:170px;display:flex;align-items:center;flex-shrink:0}}
+@media(max-width:1500px){{
+  .nav-logo-side{{width:130px}}
+  .nav-rows{{gap:5px}}
+  .nav-rows .nav-btn,.nav-rows .nav-dd-btn{{font-size:10.5px;padding:6px 4px;gap:3px}}
+}}
+@media(max-width:1340px){{
+  .nav-logo-side{{width:110px}}
+  .nav-logo-side[aria-hidden]{{display:none}}
+  .nav-rows .nav-btn,.nav-rows .nav-dd-btn{{font-size:10px;padding:6px 3px}}
+  .nav-rows .dd-arrow{{display:none}}
+}}
 .topnav::-webkit-scrollbar{{display:none;}}
 .topnav-logo-wrap{{
   display:flex;align-items:center;flex-shrink:0;
@@ -8170,7 +8181,7 @@ iframe.active{{display:block}}
     </button>
     <div class="dd-menu" id="ddmenu-fa"></div>
   </div>
-  <button class="nav-btn" id="btn-tz" onclick="showArea('tz')">&#128203; Tourzuordnung</button>
+  <button class="nav-btn" id="btn-tz" onclick="showArea('tz')">&#128467;&#65039; Tourzuordnung</button>
   <button class="nav-btn" id="btn-zulage" onclick="showArea('zulage')">&#128176; Zulagen</button>
   </div>
   <div class="nav-row">
@@ -15567,6 +15578,7 @@ def _build_generation_metadata(ready_instances: list, generated_at: datetime.dat
         {"label": "Schichten / Tachograph", "value": str(shift_count), "detail": f"{len(timerec) if isinstance(timerec, dict) else 0} Fahrer"},
         {"label": "Verstöße", "value": str(violations.get("total_violations", 0) if isinstance(violations, dict) else 0), "detail": f"{len(violations.get('drivers', [])) if isinstance(violations, dict) else 0} Fahrer"},
         {"label": "Spesen", "value": str(expenses.get("total_rows", 0) if isinstance(expenses, dict) else 0), "detail": f"{len(expenses.get('drivers', [])) if isinstance(expenses, dict) else 0} Fahrer"},
+        {"label": "Tourzuordnung", "value": str(str(st.session_state.get("tourzuordnung_html", "") or "").count('class="driver-card"')), "detail": "Fahrer (4 Wochen)"},
         {"label": "Großkunden", "value": str(len(big_customers) if isinstance(big_customers, list) else 0), "detail": "Kunden"},
         {"label": "Spediteure", "value": str(len(carriers.get("fahrten", [])) if isinstance(carriers, dict) else 0), "detail": "Fahrten"},
         {"label": "Fahrerbewertung", "value": str(len(driver_rating.get("drivers", [])) if isinstance(driver_rating, dict) else 0), "detail": "Fahrer"},
@@ -15689,7 +15701,7 @@ def _build_export_preflight(ready_instances: list) -> tuple[list[dict], list[str
     optional_keys = (
         "tel_json", "zulage_json", "drittkunden_json", "fahrzeugwaesche_json", "tanken_json",
         "verstoss_json", "spesen_json", "grosskunden_json", "timerec_json",
-        "spediteure_json", "fahrerbewertung_json",
+        "spediteure_json", "fahrerbewertung_json", "tourzuordnung_html",
     )
     loaded_optional = sum(
         1 for key in optional_keys
