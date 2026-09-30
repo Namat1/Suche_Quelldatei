@@ -7811,6 +7811,7 @@ h1{margin:0;font-size:24px;color:var(--navy);letter-spacing:-.02em}
 .chip small{opacity:.7;font-weight:600;margin-left:3px}
 .tgl{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:#3c4b60;cursor:pointer;white-space:nowrap}
 .btn{height:32px;border:1px solid #c9d3de;border-radius:8px;background:#fff;color:#334155;padding:0 12px;font-weight:700;cursor:pointer}
+.btn-xl{background:#1d6f42;border-color:#1d6f42;color:#fff}.btn-xl:hover{background:#185c37}
 .legend{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:var(--muted);align-items:center}
 .legend .tz-e{display:inline-flex;min-height:0;padding:2px 7px}
 .card{background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden;box-shadow:0 3px 10px rgba(20,40,70,.04)}
@@ -7871,7 +7872,7 @@ td{padding:4px}
       <input id="q" type="search" placeholder="Fahrer, KF-Nr. oder Tour suchen …">
       <div class="chips" id="chips">%%CHIPS%%</div>
       <label class="tgl"><input type="checkbox" id="sped"> Speditionen</label>
-      <button class="btn" onclick="window.print()">Drucken</button>
+      <button class="btn btn-xl" onclick="tzExcel()">&#128190; Excel Download</button>
     </div>
     <div class="legend">
       <span class="tz-e k-tour"><span class="tz-l">Tour</span></span>
@@ -7892,6 +7893,14 @@ td{padding:4px}
   <div class="empty hidden" id="none">Keine Fahrer für diese Auswahl.</div>
 </div>
 <script>
+var TZ_XLSX_B64="%%XLSX_B64%%";
+function tzExcel(){
+  var bin=atob(TZ_XLSX_B64),buf=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);
+  var blob=new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="Tourzuordnung_4_Wochen.xlsx";
+  document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},500);
+}
 (function(){
   var cards=[].slice.call(document.querySelectorAll('.card'));
   var q=document.getElementById('q'),sped=document.getElementById('sped'),none=document.getElementById('none');
@@ -7917,6 +7926,149 @@ td{padding:4px}
 </script>
 </body>
 </html>"""
+
+
+_TZ_XLSX_FILLS = {
+    "tour": ("E8F0FB", "1E5FA8"), "sonder": ("F1EAFB", "6D3FB0"), "zbv": ("FFF2DC", "A86200"),
+    "hof": ("E1F5F1", "0F7A6E"), "urlaub": ("E4F6E8", "23813B"), "krank": ("FDE8EA", "B42333"),
+    "ausgleich": ("E8EDF4", "4F5F78"), "schule": ("F0F1F3", "6B7280"),
+}
+_TZ_KIND_LABEL = {
+    "tour": "Tour", "sonder": "Sonder", "zbv": "z.b.v.", "hof": "Hof/Waschteam",
+    "urlaub": "Urlaub", "krank": "Krank", "ausgleich": "Ausgleich", "schule": "Schule/Elternzeit",
+}
+
+
+def _tz_build_xlsx(active: list, idle: list) -> bytes:
+    """Excel-Export der Tourzuordnung: Plan (Fahrer x Woche x So–Sa), Liste, Ohne Einsatz."""
+    import openpyxl as _opxl
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = _opxl.Workbook()
+    thin = Side(style="thin", color="D7DFE8")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    head_fill = PatternFill("solid", fgColor="1C395A")
+    head_font = Font(bold=True, color="FFFFFF")
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    status_label = {"Fest": "Fest", "Springer": "Springer", "Spedition": "Spedition"}
+
+    # ── Blatt 1: Plan ────────────────────────────────────────────────────────
+    ws = wb.active
+    ws.title = "Tourzuordnung"
+    headers = ["Fahrer", "KF-Nr.", "Status", "Woche"] + list(_TZ_DAYS_LONG) + ["Touren", "Sonder/z.b.v.", "frei", "abwesend"]
+    ws.append(headers)
+    for c in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=c)
+        cell.fill, cell.font, cell.alignment, cell.border = head_fill, head_font, center, border
+    ws.row_dimensions[1].height = 22
+
+    order = sorted(
+        (d for d in active if d["group"] != "Spedition"),  # Speditionen nicht im Export
+        key=lambda d: ({"Fest": 0, "Springer": 1}.get(d["group"], 2), d["name"].casefold()),
+    )
+    row = 2
+    band = False
+    for d in order:
+        band = not band
+        base_fill = PatternFill("solid", fgColor="F6F8FB" if band else "FFFFFF")
+        for wi, wk in enumerate(d["grid"], start=1):
+            cnt = {"tour": 0, "sonder": 0, "frei": 0, "abw": 0}
+            ws.cell(row=row, column=1, value=d["name"])
+            kf_val = int(d["kf"]) if d["kf"].isdigit() else d["kf"]
+            ws.cell(row=row, column=2, value=kf_val)
+            ws.cell(row=row, column=3, value=status_label.get(d["group"], d["group"]))
+            ws.cell(row=row, column=4, value=f"Woche {wi}")
+            max_lines = 1
+            for di, entries in enumerate(wk):
+                cell = ws.cell(row=row, column=5 + di)
+                if not entries:
+                    cnt["frei"] += 1
+                    cell.value = "frei"
+                    cell.font = Font(italic=True, color="9AA6B6")
+                    cell.fill = base_fill
+                else:
+                    lines = []
+                    for e in entries:
+                        shown = "z.b.v." if e["kind"] == "zbv" else e["label"]
+                        lines.append(f'{shown}  {e["time"]}'.strip())
+                        if e["kind"] == "tour":
+                            cnt["tour"] += 1
+                        elif e["kind"] in ("urlaub", "krank", "ausgleich", "schule"):
+                            cnt["abw"] += 1
+                        else:
+                            cnt["sonder"] += 1
+                    max_lines = max(max_lines, len(lines))
+                    first = entries[0]["kind"]
+                    bg, fg = _TZ_XLSX_FILLS.get(first, ("FFFFFF", "132238"))
+                    cell.value = "\n".join(lines)
+                    cell.fill = PatternFill("solid", fgColor=bg)
+                    cell.font = Font(bold=True, color=fg)
+                cell.alignment = center
+                cell.border = border
+            for ci, key in enumerate(("tour", "sonder", "frei", "abw"), start=12):
+                c = ws.cell(row=row, column=ci, value=cnt[key])
+                c.alignment, c.border, c.fill = center, border, base_fill
+            for ci in range(1, 5):
+                c = ws.cell(row=row, column=ci)
+                c.border, c.fill = border, base_fill
+                c.alignment = left if ci == 1 else center
+                if ci == 1:
+                    c.font = Font(bold=True)
+            ws.row_dimensions[row].height = 18 * max_lines
+            row += 1
+    widths = [26, 9, 11, 10] + [17] * 7 + [9, 13, 7, 10]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "E2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(row - 1, 1)}"
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_title_rows = "1:1"
+
+    # ── Blatt 2: Liste (eine Zeile je Einsatz, für Filter/Pivot) ────────────
+    wl = wb.create_sheet("Liste")
+    lh = ["Fahrer", "KF-Nr.", "Status", "Woche", "Tag", "Einsatz", "Art", "Uhrzeit"]
+    wl.append(lh)
+    for c in range(1, len(lh) + 1):
+        cell = wl.cell(row=1, column=c)
+        cell.fill, cell.font, cell.alignment = head_fill, head_font, center
+    for d in order:
+        kf_val = int(d["kf"]) if d["kf"].isdigit() else d["kf"]
+        for wi, wk in enumerate(d["grid"], start=1):
+            for di, entries in enumerate(wk):
+                if not entries:
+                    wl.append([d["name"], kf_val, status_label.get(d["group"], d["group"]), wi, _TZ_DAYS_LONG[di], "frei", "frei", ""])
+                    continue
+                for e in entries:
+                    einsatz = int(e["label"]) if e["kind"] == "tour" and e["label"].isdigit() else e["label"]
+                    wl.append([d["name"], kf_val, status_label.get(d["group"], d["group"]), wi,
+                               _TZ_DAYS_LONG[di], einsatz, _TZ_KIND_LABEL.get(e["kind"], e["kind"]), e["time"]])
+    for i, w in enumerate([26, 9, 11, 8, 12, 30, 16, 9], start=1):
+        wl.column_dimensions[get_column_letter(i)].width = w
+    wl.freeze_panes = "A2"
+    wl.auto_filter.ref = f"A1:H{wl.max_row}"
+
+    # ── Blatt 3: Ohne Einsatz ────────────────────────────────────────────────
+    wo = wb.create_sheet("Ohne Einsatz")
+    wo.append(["Fahrer", "KF-Nr."])
+    for c in (1, 2):
+        cell = wo.cell(row=1, column=c)
+        cell.fill, cell.font, cell.alignment = head_fill, head_font, center
+    for d in idle:
+        if _tz_is_spedition(d["kf"]):
+            continue
+        wo.append([d["name"], int(d["kf"]) if d["kf"].isdigit() else d["kf"]])
+    wo.column_dimensions["A"].width = 30
+    wo.column_dimensions["B"].width = 10
+    wo.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def _tz_build_html(weeks: list, groups: dict) -> str:
@@ -8016,7 +8168,8 @@ def _tz_build_html(weeks: list, groups: dict) -> str:
             .replace("%%CHIPS%%", chips)
             .replace("%%CARDS%%", "".join(cards))
             .replace("%%IDLE_N%%", str(idle_n))
-            .replace("%%IDLE%%", idle_html))
+            .replace("%%IDLE%%", idle_html)
+            .replace("%%XLSX_B64%%", base64.b64encode(_tz_build_xlsx(active, idle)).decode("ascii")))
 
 
 def parse_tourzuordnung_excel(uploaded_files) -> str:
