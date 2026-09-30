@@ -7606,7 +7606,7 @@ _TZ_ABSENCE = {
     "elternzeit": "schule", "berufsschule": "schule", "fahrschule": "schule",
 }
 _TZ_HOF_KEYS = ("hof", "waschteam", "verladung", "verlandung", "kommi", "leergut", "werkstatt", "werksatt")
-_TZ_GROUP_ORDER = ("Stammfahrer", "Springer", "Azubi", "Umschüler", "538€-Kraft", "Hof", "Waschteam", "Spedition")
+_TZ_GROUP_ORDER = ("Fest", "Springer", "Spedition")
 
 
 def _tz_clean_text(value) -> str:
@@ -7725,11 +7725,11 @@ def _tz_read_week(raw: bytes):
         kf = _tz_kf(top[0])
         if not kf:
             continue
-        name = f"{_tz_clean_text(top[1])} {_tz_clean_text(top[2])}".strip()
+        name = " ".join(
+            _tz_clean_text(v) for v in (top[1], top[2]) if isinstance(v, str) and _tz_clean_text(v)
+        ).strip()
         if not name:
             name = groups.get(kf, ("", ""))[0]
-        if not name:
-            continue
         days = []
         for col in day_cols:
             entries = []
@@ -7748,16 +7748,23 @@ def _tz_read_week(raw: bytes):
     return week, groups
 
 
-def _tz_group_for(kf: str, group: str) -> str:
-    g = (group or "").strip()
-    if g:
-        return g
+def _tz_is_spedition(kf: str) -> bool:
     try:
-        if int(kf) >= 8000:
-            return "Spedition"
+        return int(kf) >= 8000
     except ValueError:
-        pass
-    return "Stammfahrer"
+        return False
+
+
+def _tz_group_for(kf: str, grid) -> str:
+    """Klassifizierung ausschließlich über die Zuordnung (nicht über 'a Fahrer'):
+    Fest = in allen 4 Wochen eingeplant (Einsatz oder Abwesenheit),
+    Springer = nur in einzelnen Wochen eingeplant, sonst ohne Einsatz."""
+    if _tz_is_spedition(kf):
+        return "Spedition"
+    weeks_used = sum(1 for wk in grid if any(wk))
+    if weeks_used == 0:
+        return ""
+    return "Fest" if weeks_used == len(grid) else "Springer"
 
 
 def _tz_cell_html(entries) -> str:
@@ -7811,7 +7818,7 @@ h1{margin:0;font-size:24px;color:var(--navy);letter-spacing:-.02em}
 .card-h .nm{font-size:14px;font-weight:800}
 .card-h .kf{font-size:11px;font-weight:700;background:rgba(255,255,255,.16);border-radius:6px;padding:1px 7px;font-variant-numeric:tabular-nums}
 .card-h .grp{font-size:10.5px;font-weight:800;border-radius:999px;padding:2px 8px;background:#fff;color:var(--navy)}
-.card-h .grp.g-Springer{background:#ffe6c7;color:#8a4b00}.card-h .grp.g-Azubi{background:#dff3e4;color:#1d6b35}
+.card-h .grp.g-Springer{background:#ffe6c7;color:#8a4b00}
 .card-h .grp.g-Spedition{background:#e5e7eb;color:#374151}
 .card-h .stats{margin-left:auto;display:flex;gap:10px;font-size:11px;opacity:.9;white-space:nowrap}
 .card-h .stats b{font-variant-numeric:tabular-nums}
@@ -7856,7 +7863,7 @@ td{padding:4px}
 <body>
 <div class="app">
   <div class="head">
-    <div><h1>Tourzuordnung</h1><div class="sub">Einsätze je Fahrer · 4 Wochen · Sonntag–Samstag (Schichtbeginn)</div></div>
+    <div><h1>Tourzuordnung</h1><div class="sub">Einsätze je Fahrer · 4 Wochen · Sonntag–Samstag (Schichtbeginn) · Fest = in allen 4 Wochen eingeplant, Springer = nur in einzelnen Wochen</div></div>
     <div class="metrics">%%METRICS%%</div>
   </div>
   <div class="bar">
@@ -7920,11 +7927,15 @@ def _tz_build_html(weeks: list, groups: dict) -> str:
 
     drivers = []
     for kf in all_kf:
-        name = next((w[kf]["name"] for w in weeks if kf in w), "") or groups.get(kf, ("", ""))[0]
+        name = next((w[kf]["name"] for w in weeks if kf in w and w[kf]["name"]), "") \
+            or groups.get(kf, ("", ""))[0]
+        if not name:
+            continue  # leere Vorlagenzeilen ohne Namen
         grid = [w[kf]["days"] if kf in w else [[] for _ in range(7)] for w in weeks]
         drivers.append({
             "kf": kf, "name": name,
-            "group": _tz_group_for(kf, groups.get(kf, ("", ""))[1]),
+            "group": _tz_group_for(kf, grid),
+            "weeks_used": sum(1 for wk in grid if any(wk)),
             "grid": grid,
         })
     drivers.sort(key=lambda d: (d["name"].casefold(), d["kf"]))
@@ -7963,8 +7974,12 @@ def _tz_build_html(weeks: list, groups: dict) -> str:
             for k in ("tour", "sonder", "abw"):
                 tot[k] += cnt[k]
         search = " ".join([d["name"].lower(), d["kf"], d["group"].lower()] + sorted(tours))
-        grp_badge = (f'<span class="grp g-{_tz_html.escape(d["group"].split()[0])}">{_tz_html.escape(d["group"])}</span>'
-                     if d["group"] != "Stammfahrer" else "")
+        if d["group"] == "Springer":
+            grp_badge = f'<span class="grp g-Springer">Springer · {d["weeks_used"]}/4 Wochen</span>'
+        elif d["group"] == "Spedition":
+            grp_badge = '<span class="grp g-Spedition">Spedition</span>'
+        else:
+            grp_badge = ""
         cards.append(
             f'<section class="card driver-card" data-group="{_tz_html.escape(d["group"])}" '
             f'data-s="{_tz_html.escape(search)}">'
@@ -7978,22 +7993,23 @@ def _tz_build_html(weeks: list, groups: dict) -> str:
     present = {d["group"] for d in active}
     chip_groups = [g for g in _TZ_GROUP_ORDER if g in present] + sorted(present - set(_TZ_GROUP_ORDER))
     chips = '<button class="chip on" data-g="">Alle</button>' + "".join(
-        f'<button class="chip" data-g="{_tz_html.escape(g)}">{_tz_html.escape(g)}'
+        f'<button class="chip" data-g="{_tz_html.escape(g)}">'
+        f'{ {"Fest": "Feste Fahrer", "Spedition": "Speditionen"}.get(g, g) }'
         f'<small>{sum(1 for d in active if d["group"] == g)}</small></button>'
         for g in chip_groups
     )
-    own = sum(1 for d in active if d["group"] != "Spedition")
     metrics = (
-        f'<div class="metric"><b>{own}</b>Fahrer im Einsatz</div>'
+        f'<div class="metric"><b>{sum(1 for d in active if d["group"] == "Fest")}</b>Feste Fahrer</div>'
+        f'<div class="metric"><b>{sum(1 for d in active if d["group"] == "Springer")}</b>Springer</div>'
         f'<div class="metric"><b>{tot["tour"]}</b>Tour-Einsätze</div>'
         f'<div class="metric"><b>{tot["sonder"]}</b>Sonder / z.b.v.</div>'
         f'<div class="metric"><b>{tot["abw"]}</b>Abwesenheiten</div>'
     )
     idle_html = "".join(
-        f'<div class="idle-it">{_tz_html.escape(d["name"])}<span>{_tz_html.escape(d["kf"])} · {_tz_html.escape(d["group"])}</span></div>'
-        for d in idle if d["group"] != "Spedition"
+        f'<div class="idle-it">{_tz_html.escape(d["name"])}<span>{_tz_html.escape(d["kf"])}</span></div>'
+        for d in idle if not _tz_is_spedition(d["kf"])
     ) or '<div class="idle-it">Keine</div>'
-    idle_n = sum(1 for d in idle if d["group"] != "Spedition")
+    idle_n = sum(1 for d in idle if not _tz_is_spedition(d["kf"]))
 
     return (_TZ_TEMPLATE
             .replace("%%METRICS%%", metrics)
