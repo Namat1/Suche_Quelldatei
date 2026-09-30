@@ -7645,7 +7645,7 @@ def _render_dashboard_html(
 html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 .topnav{{
   height:84px;
-  flex-wrap:wrap;align-content:center;row-gap:5px;
+
   background:linear-gradient(180deg,#eef2f6 0%,#dde4eb 100%);
   display:flex;align-items:center;padding:0 12px;gap:4px;
   box-shadow:0 2px 10px rgba(15,23,42,.08);
@@ -7654,14 +7654,17 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
   overflow:visible;
   scrollbar-width:none;
 }}
-.nav-break{{flex-basis:100%;height:0;width:0;margin:0;padding:0}}
+.nav-rows{{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px}}
+.nav-row{{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:nowrap}}
+.nav-row .nav-btn,.nav-row .nav-dd-btn{{padding:6px 12px}}
+.nav-logo-side{{width:170px;display:flex;align-items:center;flex-shrink:0}}
 .topnav::-webkit-scrollbar{{display:none;}}
 .topnav-logo-wrap{{
   display:flex;align-items:center;flex-shrink:0;
   padding-right:4px;
 }}
 .topnav-logo{{
-  height:28px;
+  height:36px;
   width:auto;
   display:block;
   object-fit:contain;
@@ -7737,7 +7740,7 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 }}
 @media(max-width:1850px){{
   .topnav{{padding:0 8px;gap:3px}}
-  .topnav-logo{{height:24px}}
+  .topnav-logo{{height:30px}}
   .nav-sep{{margin:0 2px}}
   .nav-btn,.nav-dd-btn{{padding:5px 7px;font-size:11px}}
   .inst-label{{max-width:68px;font-size:8px;padding:1px 4px;margin-left:3px}}
@@ -7781,10 +7784,11 @@ iframe.active{{display:block}}
 <body>
 
 <nav class="topnav">
-  <div class="topnav-logo-wrap">
+  <div class="topnav-logo-wrap nav-logo-side">
     <img class="topnav-logo" src="{logo_data_url}" alt="Nordfrische Center Logo">
   </div>
-  <div class="nav-sep"></div>
+  <div class="nav-rows">
+  <div class="nav-row">
   <div class="nav-dd" id="dd-suche">
     <button class="nav-dd-btn active" id="btn-suche" onclick="ddToggle('suche',event)">
       &#128269; Suche <span id="inst-label-suche"></span><span class="dd-arrow">&#9660;</span>
@@ -7815,7 +7819,8 @@ iframe.active{{display:block}}
     </button>
     <div class="dd-menu" id="ddmenu-fa"></div>
   </div>
-  <div class="nav-break"></div>
+  </div>
+  <div class="nav-row">
   <button class="nav-btn" id="btn-zulage" onclick="showArea('zulage')">&#128176; Zulagen</button>
   <button class="nav-btn" id="btn-spesen" onclick="showArea('spesen')">&#128181; Spesen</button>
   <button class="nav-btn" id="btn-gk" onclick="showArea('gk')">&#127970; Gro&#223;kunden</button>
@@ -7839,6 +7844,8 @@ iframe.active{{display:block}}
     <div class="dd-menu" id="ddmenu-infos"></div>
   </div>
   </div>
+  </div>
+  <div class="nav-logo-side" aria-hidden="true"></div>
 </nav>
 
 <div class="build-info-overlay" id="buildInfoOverlay" onclick="buildInfoBackdrop(event)">
