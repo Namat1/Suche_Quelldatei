@@ -7593,6 +7593,357 @@ function hupaInit(){
 
 
 
+# ── Tourzuordnung (Fahrer ↔ Touren, 4-Wochen-Plan) ───────────────────────────
+import html as _tz_html
+from collections import defaultdict as _tz_dd
+from datetime import datetime as _tz_datetime, time as _tz_time
+
+_TZ_WEEK_COLORS = {
+    1: ("#eaf2ff", "#4f83c6"),
+    2: ("#edf8ef", "#5f9b6d"),
+    3: ("#fff4df", "#c38a33"),
+    4: ("#f3ecfa", "#8a69ac"),
+}
+
+
+def _tz_clean_text(value) -> str:
+    if value is None:
+        return ""
+    value = str(value).strip()
+    if value in {"0", "0.0", "None", "nan"}:
+        return ""
+    return re.sub(r"\s+", " ", value)
+
+
+def _tz_numeric_tour(value):
+    if value is None:
+        return None
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    # Hilfs-/Kopfzeilen ausschließen. Reale Touren beginnen hier ab 1000.
+    return n if n >= 1000 else None
+
+
+def _tz_format_excel_time(value) -> str:
+    if value is None or value == "":
+        return ""
+    if isinstance(value, _tz_datetime):
+        return value.strftime("%H:%M")
+    if isinstance(value, _tz_time):
+        return value.strftime("%H:%M")
+    if isinstance(value, (int, float)):
+        minutes = int(round((float(value) % 1) * 24 * 60)) % (24 * 60)
+        h, m = divmod(minutes, 60)
+        return f"{h:02d}:{m:02d}"
+    text = _tz_clean_text(value)
+    # Bereits vorhandene Uhrzeit möglichst vereinheitlichen.
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            return _tz_datetime.strptime(text, fmt).strftime("%H:%M")
+        except ValueError:
+            pass
+    return text
+
+
+def _tz_build_driver_map(ws):
+    """KF-Nr. -> Anzeigename aus Blatt 'a Fahrer'."""
+    mapping = {}
+    for row in ws.iter_rows(min_row=1, values_only=True):
+        if not row:
+            continue
+        key = _tz_clean_text(row[0] if len(row) > 0 else None)
+        last = _tz_clean_text(row[1] if len(row) > 1 else None)
+        first = _tz_clean_text(row[2] if len(row) > 2 else None)
+        if not key or not last:
+            continue
+        mapping[key] = f"{last} {first}".strip()
+    return mapping
+
+
+def _tz_driver_name(last, first, driver_id, driver_map) -> str:
+    last = _tz_clean_text(last)
+    first = _tz_clean_text(first)
+    if last:
+        return f"{last} {first}".strip()
+    key = _tz_clean_text(driver_id)
+    return driver_map.get(key, "")
+
+
+def _tz_read_week(raw: bytes, week_number: int):
+    import openpyxl as _opxl
+    wb = _opxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+
+    if "Touren" not in wb.sheetnames:
+        raise ValueError("Blatt 'Touren' wurde nicht gefunden.")
+    if "a Fahrer" not in wb.sheetnames:
+        raise ValueError("Blatt 'a Fahrer' wurde nicht gefunden.")
+
+    driver_map = _tz_build_driver_map(wb["a Fahrer"])
+    ws = wb["Touren"]
+
+    records = []
+    for row in ws.iter_rows(min_row=1, values_only=True):
+        # A Tour, C KF1, D Name1, E V-Name1, F KF2, G Name2, H V-Name2, I Uhrzeit
+        tour = _tz_numeric_tour(row[0] if len(row) > 0 else None)
+        if tour is None:
+            continue
+
+        primary = _tz_driver_name(
+            row[3] if len(row) > 3 else None,
+            row[4] if len(row) > 4 else None,
+            row[2] if len(row) > 2 else None,
+            driver_map,
+        )
+        secondary = _tz_driver_name(
+            row[6] if len(row) > 6 else None,
+            row[7] if len(row) > 7 else None,
+            row[5] if len(row) > 5 else None,
+            driver_map,
+        )
+
+        # Logik der bisherigen Auswertung:
+        # Fahrer 1 verwenden; wenn dort niemand steht, Fahrer 2 verwenden.
+        name = primary or secondary
+        if not name:
+            continue
+
+        records.append(
+            {
+                "name": name,
+                "week": week_number,
+                "time": _tz_format_excel_time(row[8] if len(row) > 8 else None),
+                "tour": tour,
+            }
+        )
+
+    wb.close()
+    return records
+
+
+def _tz_read_springer(raw: bytes):
+    """Springer direkt aus dem Blatt 'a Fahrer' lesen."""
+    import openpyxl as _opxl
+    wb = _opxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    if "a Fahrer" not in wb.sheetnames:
+        wb.close()
+        return []
+
+    ws = wb["a Fahrer"]
+    result = []
+    seen = set()
+
+    for row in ws.iter_rows(min_row=1, values_only=True):
+        number = _tz_clean_text(row[0] if len(row) > 0 else None)
+        last = _tz_clean_text(row[1] if len(row) > 1 else None)
+        first = _tz_clean_text(row[2] if len(row) > 2 else None)
+        group_e = _tz_clean_text(row[4] if len(row) > 4 else None).lower()
+        group_f = _tz_clean_text(row[5] if len(row) > 5 else None).lower()
+
+        if "springer" not in {group_e, group_f}:
+            continue
+        if not last:
+            continue
+
+        name = f"{last} {first}".strip()
+        key = (number, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append({"number": number, "name": name})
+
+    wb.close()
+    result.sort(key=lambda x: x["name"].casefold())
+    return result
+
+
+def _tz_sort_records(records):
+    return sorted(
+        records,
+        key=lambda r: (
+            r["name"].casefold(),
+            r["week"],
+            r["tour"],
+            r["time"],
+        ),
+    )
+
+
+def _tz_build_html(records, springer):
+    records = _tz_sort_records(records)
+    grouped = _tz_dd(lambda: _tz_dd(list))
+    for r in records:
+        grouped[r["name"]][r["week"]].append(r)
+
+    driver_names = sorted(grouped, key=str.casefold)
+    unique_tours = len({r["tour"] for r in records})
+
+    springer_cards = "".join(
+        f'<div class="springer-card"><span>{_tz_html.escape(s["name"])}</span>'
+        f'<b>{_tz_html.escape(s["number"])}</b></div>'
+        for s in springer
+    ) or '<div class="muted">Keine Springer gefunden.</div>'
+
+    driver_blocks = []
+    for name in driver_names:
+        week_rows = []
+        for week in range(1, 5):
+            entries = grouped[name].get(week, [])
+            bg, accent = _TZ_WEEK_COLORS[week]
+            if entries:
+                entry_html = "".join(
+                    f'''<div class="tour-row">
+                        <span class="tour-no">{r["tour"]}</span>
+                        <span class="time">{_tz_html.escape(r["time"] or "–")}</span>
+                    </div>'''
+                    for r in entries
+                )
+            else:
+                entry_html = '<div class="empty-week">keine Tour</div>'
+
+            week_rows.append(
+                f'''<div class="week-box" style="--week-bg:{bg};--week-accent:{accent}">
+                    <div class="week-head">Woche {week}</div>
+                    <div class="week-content">{entry_html}</div>
+                </div>'''
+            )
+
+        driver_blocks.append(
+            f'''<section class="driver-card" data-name="{_tz_html.escape(name.lower())}">
+                <div class="driver-name">{_tz_html.escape(name)}</div>
+                <div class="weeks">{"".join(week_rows)}</div>
+            </section>'''
+        )
+
+    return f'''<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fahrer- & Tourenübersicht</title>
+<style>
+:root{{--bg:#f2f4f7;--card:#fff;--text:#172235;--muted:#6f7b8b;--line:#d9dfe7;--navy:#1c395a;--navy2:#294f78;}}
+*{{box-sizing:border-box}}
+body{{margin:0;background:var(--bg);color:var(--text);font-family:Segoe UI,Arial,sans-serif}}
+.app{{width:min(1240px,calc(100% - 28px));margin:auto;padding:24px 0 46px}}
+.header{{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:16px}}
+h1{{margin:0;color:var(--navy);font-size:30px;letter-spacing:-.03em}}
+.subtitle{{margin-top:5px;color:var(--muted);font-size:14px}}
+.metrics{{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}}
+.metric{{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:12px;color:var(--muted)}}
+.metric b{{font-size:15px;color:var(--navy);margin-right:4px}}
+.toolbar{{display:flex;gap:10px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:13px;padding:11px;margin-bottom:13px;box-shadow:0 5px 15px rgba(25,40,60,.05)}}
+.search{{flex:1;min-width:250px}}
+.search input{{width:100%;height:42px;border:1px solid #cbd3dd;border-radius:9px;padding:0 13px;font-size:14px;outline:none}}
+.search input:focus{{border-color:#8fa7c4;box-shadow:0 0 0 3px rgba(41,79,120,.08)}}
+button{{height:42px;border:1px solid #cbd3dd;border-radius:9px;background:#fff;color:#405069;padding:0 13px;font-weight:700;cursor:pointer}}
+button:hover{{border-color:#9ca9ba}}
+.springer{{background:#fff;border:1px solid var(--line);border-radius:13px;margin-bottom:14px;overflow:hidden}}
+.springer-head{{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:#f8fafc;border-bottom:1px solid var(--line);font-weight:800;color:var(--navy)}}
+.springer-head span{{background:#b87531;color:#fff;border-radius:999px;padding:3px 8px;font-size:11px;margin-left:6px}}
+.springer-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;padding:12px}}
+.springer-card{{display:flex;justify-content:space-between;gap:8px;background:#fff8ef;border:1px solid #ead9c4;border-left:4px solid #c88a42;border-radius:8px;padding:8px 9px;font-size:12px;font-weight:700}}
+.springer-card b{{font-size:10px;color:#94612b;background:#fff;border:1px solid #e5cda9;border-radius:999px;padding:2px 6px;white-space:nowrap}}
+.springer-body.collapsed{{display:none}}
+.driver-card{{background:#fff;border:1px solid var(--line);border-radius:14px;margin-bottom:10px;box-shadow:0 4px 13px rgba(25,40,60,.045);overflow:hidden}}
+.driver-name{{padding:11px 14px;background:linear-gradient(180deg,#294f78,#1c395a);color:#fff;font-size:15px;font-weight:800;letter-spacing:.01em}}
+.weeks{{display:grid;grid-template-columns:repeat(4,1fr);gap:0}}
+.week-box{{background:var(--week-bg);border-right:1px solid rgba(90,100,115,.18);min-height:88px}}
+.week-box:last-child{{border-right:0}}
+.week-head{{padding:7px 10px;border-bottom:1px solid rgba(90,100,115,.14);border-top:3px solid var(--week-accent);font-size:11px;font-weight:850;color:#38465a;text-transform:uppercase;letter-spacing:.05em}}
+.week-content{{padding:6px 9px 8px}}
+.tour-row{{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(90,100,115,.11)}}
+.tour-row:last-child{{border-bottom:0}}
+.tour-no{{font-weight:850;color:#203a59;font-variant-numeric:tabular-nums}}
+.time{{color:#536175;font-size:12px;font-variant-numeric:tabular-nums}}
+.empty-week{{padding:8px 0;color:#9199a5;font-size:12px;font-style:italic}}
+.muted{{color:var(--muted);font-size:12px;padding:5px}}
+.hidden{{display:none!important}}
+.footer{{color:var(--muted);font-size:11px;text-align:right;margin-top:10px}}
+@media(max-width:900px){{.springer-grid{{grid-template-columns:repeat(2,1fr)}}.weeks{{grid-template-columns:repeat(2,1fr)}}.week-box:nth-child(2){{border-right:0}}}}
+@media(max-width:620px){{.app{{width:calc(100% - 14px);padding-top:12px}}.header{{align-items:flex-start;flex-direction:column}}.metrics{{justify-content:flex-start}}.toolbar{{align-items:stretch;flex-direction:column}}.springer-grid{{grid-template-columns:1fr}}.weeks{{grid-template-columns:1fr}}.week-box{{border-right:0;border-bottom:1px solid rgba(90,100,115,.18)}}}}
+@media print{{body{{background:#fff}}.app{{width:100%;padding:0}}.toolbar,.springer,.metrics,.footer{{display:none!important}}.driver-card{{box-shadow:none;break-inside:avoid}}.driver-name{{background:#1c395a!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}.week-box{{-webkit-print-color-adjust:exact;print-color-adjust:exact}}@page{{size:A4 landscape;margin:8mm}}}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div><h1>Fahrer- & Tourenübersicht</h1><div class="subtitle">Vier-Wochen-Plan je Fahrer</div></div>
+    <div class="metrics"><div class="metric"><b>{len(driver_names)}</b>Fahrer</div><div class="metric"><b>{len(records)}</b>Einträge</div><div class="metric"><b>{unique_tours}</b>Touren</div><div class="metric"><b>{len(springer)}</b>Springer</div></div>
+  </header>
+
+  <div class="toolbar">
+    <div class="search"><input id="search" type="search" placeholder="Fahrer suchen …"></div>
+    <button onclick="window.print()">Drucken</button>
+  </div>
+
+  <section class="springer">
+    <div class="springer-head"><div>Fahrer ohne feste Touren <span>{len(springer)}</span></div><button id="toggleSpringer">Liste ausblenden</button></div>
+    <div class="springer-body" id="springerBody"><div class="springer-grid">{springer_cards}</div></div>
+  </section>
+
+  <main id="drivers">{"".join(driver_blocks)}</main>
+  <div class="footer">Erstellt mit Fahrer Touren HTML Generator</div>
+</div>
+<script>
+const search=document.getElementById('search');
+const cards=[...document.querySelectorAll('.driver-card')];
+search.addEventListener('input',()=>{{const q=search.value.trim().toLowerCase();cards.forEach(c=>c.classList.toggle('hidden',q && !c.dataset.name.includes(q)));}});
+const body=document.getElementById('springerBody');
+const toggle=document.getElementById('toggleSpringer');
+toggle.addEventListener('click',()=>{{const hidden=body.classList.toggle('collapsed');toggle.textContent=hidden?'Liste anzeigen':'Liste ausblenden';}});
+</script>
+</body>
+</html>'''
+
+
+
+def parse_tourzuordnung_excel(uploaded_files) -> str:
+    """Vier Wochen-Excel-Dateien (Vorlage Tour 1-4.xlsx) -> fertige HTML-Übersicht."""
+    ups = list(uploaded_files or [])
+    if len(ups) != 4:
+        raise ValueError(f"Bitte genau 4 Dateien hochladen (aktuell {len(ups)}).")
+    named = []
+    for up in ups:
+        name = str(getattr(up, "name", "") or "")
+        m = re.findall(r"([1-4])(?=\D*\.[A-Za-z]+$)", name)
+        named.append((int(m[-1]) if m else None, name, up))
+    weeks = [w for w, _, _ in named]
+    if None in weeks or sorted(weeks) != [1, 2, 3, 4]:
+        named.sort(key=lambda t: t[1].casefold())
+        named = [(i, n, u) for i, (_, n, u) in enumerate(named, start=1)]
+    else:
+        named.sort(key=lambda t: t[0])
+    payloads = [(w, read_upload_bytes(u)) for w, _, u in named]
+    all_records = []
+    for week, raw in payloads:
+        all_records.extend(_tz_read_week(raw, week))
+    springer = _tz_read_springer(payloads[0][1])
+    return _tz_build_html(all_records, springer)
+
+
+def _tourzuordnung_panel_html(tourzuordnung_html: str) -> str:
+    """Panel 'Tourzuordnung': fertige HTML wird per srcdoc in ein iframe geladen."""
+    if tourzuordnung_html:
+        payload = json.dumps(tourzuordnung_html, ensure_ascii=False).replace("<", "\\u003c")
+        body = (
+            '<iframe id="tz-frame" style="flex:1;width:100%;border:0;background:#f2f4f7"></iframe>'
+            '<script>window.TZ_HTML=' + payload + ';</script>'
+        )
+    else:
+        body = (
+            '<div style="flex:1;display:flex;align-items:center;justify-content:center;'
+            'color:#64748b;font-size:14px;font-weight:700;">'
+            'Keine Tourzuordnung geladen &ndash; bitte beim Erstellen die 4 Wochen-Excel-Dateien hochladen.</div>'
+        )
+    return (
+        '<div id="panel-tz" style="display:none;flex:1;min-height:0;height:100%;overflow:hidden;'
+        'flex-direction:column;background:#f2f4f7;font-family:\'Segoe UI\',Arial,sans-serif">'
+        + body + '</div>'
+    )
+
+
 def _render_dashboard_html(
     *,
     logo_data_url: str,
@@ -7612,6 +7963,7 @@ def _render_dashboard_html(
     tank_js_code: str,
     hupa_panels_html: str,
     hupa_js_code: str,
+    tourzuordnung_panel_html: str,
     verstoss_js_code: str,
     sped_js_code: str,
     fabew_js_code: str,
@@ -7651,11 +8003,11 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
   overflow:visible;
   scrollbar-width:none;
 }}
-.nav-rows{{flex:1;min-width:0;display:grid;grid-template-columns:repeat(6,minmax(0,182px));gap:6px;justify-content:center;align-content:center}}
+.nav-rows{{flex:1;min-width:0;display:grid;grid-template-columns:repeat(7,minmax(0,160px));gap:6px;justify-content:center;align-content:center}}
 .nav-row{{display:contents}}
 .nav-rows .nav-dd{{width:100%}}
-.nav-rows .nav-btn,.nav-rows .nav-dd-btn{{width:100%;justify-content:center;text-align:center;padding:7px 8px;font-size:12px;display:flex;align-items:center;gap:4px}}
-.nav-logo-side{{width:190px;display:flex;align-items:center;flex-shrink:0}}
+.nav-rows .nav-btn,.nav-rows .nav-dd-btn{{width:100%;justify-content:center;text-align:center;padding:7px 6px;font-size:11.5px;display:flex;align-items:center;gap:4px}}
+.nav-logo-side{{width:170px;display:flex;align-items:center;flex-shrink:0}}
 .topnav::-webkit-scrollbar{{display:none;}}
 .topnav-logo-wrap{{
   display:flex;align-items:center;flex-shrink:0;
@@ -7818,6 +8170,7 @@ iframe.active{{display:block}}
     </button>
     <div class="dd-menu" id="ddmenu-fa"></div>
   </div>
+  <button class="nav-btn" id="btn-tz" onclick="showArea('tz')">&#128203; Tourzuordnung</button>
   <button class="nav-btn" id="btn-zulage" onclick="showArea('zulage')">&#128176; Zulagen</button>
   </div>
   <div class="nav-row">
@@ -8003,6 +8356,7 @@ document.addEventListener('keydown',function(e){{if(e.key==='Escape')closeBuildI
 
 {tank_panels_html}
 {hupa_panels_html}
+{tourzuordnung_panel_html}
 
   <div id="panel-tel" style="display:none;flex:1;overflow-y:auto;font-family:'Segoe UI',Arial,sans-serif;">
     <style>
@@ -9053,6 +9407,14 @@ function showArea(s) {{
   if(hupaPanel) hupaPanel.style.display = (s==="hupa") ? "flex" : "none";
   var hupaBtn = document.getElementById("btn-hupa");
   if(hupaBtn) hupaBtn.className = "nav-btn" + (s==="hupa" ? " active" : "");
+  var tzPanel = document.getElementById("panel-tz");
+  if(tzPanel) tzPanel.style.display = (s==="tz") ? "flex" : "none";
+  var tzBtn = document.getElementById("btn-tz");
+  if(tzBtn) tzBtn.className = "nav-btn" + (s==="tz" ? " active" : "");
+  if(s==="tz") {{
+    var tzFrame = document.getElementById("tz-frame");
+    if(tzFrame && !tzFrame.dataset.loaded && window.TZ_HTML) {{ tzFrame.srcdoc = window.TZ_HTML; tzFrame.dataset.loaded = "1"; }}
+  }}
   telPanel.style.display = (s==="tel") ? "block" : "none";
   if(samPanel)      samPanel.style.display      = (s==="sam" || s==="sam_graph") ? "block" : "none";
   var faPanel = document.getElementById("panel-fa");
@@ -12674,7 +13036,7 @@ function ddSelectFaMode(mode) {{
 </html>"""
 
 
-def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", hupa_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None) -> str:
+def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", hupa_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None, tourzuordnung_html: str = "") -> str:
     _combine_started = time.perf_counter()
     try:
         _logo_up = st.session_state.get("g_logo")
@@ -12697,6 +13059,7 @@ def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa
     tank_js_code = _tank_dashboard_js()
     hupa_panels_html = _hupa_panels_html()
     hupa_js_code = _hupa_dashboard_js()
+    tourzuordnung_panel_html = _tourzuordnung_panel_html(tourzuordnung_html)
     verstoss_js_code = js_parts['verstoss']
     knapp_js_code = js_parts['knapp']
     sped_js_code = js_parts['sped']
@@ -12783,6 +13146,7 @@ def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa
         tank_js_code=tank_js_code,
         hupa_panels_html=hupa_panels_html,
         hupa_js_code=hupa_js_code,
+        tourzuordnung_panel_html=tourzuordnung_panel_html,
         verstoss_js_code=verstoss_js_code,
         sped_js_code=sped_js_code,
         fabew_js_code=fabew_js_code,
@@ -15241,7 +15605,7 @@ def _estimate_export_size(ready_instances: list) -> int:
     extra_chars = 0
     for key in (
         "tel_json", "sam_json", "fa_json", "zulage_json",
-        "drittkunden_json", "fahrzeugwaesche_json", "tanken_json", "hupa_json", "verstoss_json",
+        "drittkunden_json", "fahrzeugwaesche_json", "tanken_json", "hupa_json", "tourzuordnung_html", "verstoss_json",
         "spesen_json", "grosskunden_json", "timerec_json",
         "spediteure_json", "fahrerbewertung_json",
     ):
@@ -15915,6 +16279,17 @@ with tab_extra:
             spinner_text="Verarbeite HuPa-TKT-Monatsdateien ...",
         )
 
+        def _tz_summary(ups):
+            page = st.session_state.get("tourzuordnung_html", "") or ""
+            drivers = page.count('class="driver-card"')
+            return f"{len(ups)} Wochen-Dateien, {drivers} Fahrer zugeordnet"
+        _extra_multi_upload(
+            "Tourzuordnung (4 Excel-Wochen: Vorlage Tour 1-4.xlsx)", ["xlsx"], "tourzuordnung",
+            {"tourzuordnung_html": parse_tourzuordnung_excel},
+            summary_fn=_tz_summary,
+            spinner_text="Verarbeite Tourzuordnung ...",
+        )
+
     with col_r:
         def _spesen_summary(j):
             sp     = json.loads(j or "{}")
@@ -16097,6 +16472,7 @@ with tab_dl:
                         versp_abfahrt_json="{}",
                         last_updated=generated_at.strftime("Stand: %d.%m.%Y %H:%M"),
                         generation_meta=generation_meta,
+                        tourzuordnung_html=st.session_state.get("tourzuordnung_html", ""),
                     )
 
                 _build_progress.progress(78, text="4/5 HTML-Datei auf dem Server speichern")
