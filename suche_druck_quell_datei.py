@@ -7644,15 +7644,17 @@ def _render_dashboard_html(
 *{{box-sizing:border-box;margin:0;padding:0}}
 html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 .topnav{{
-  height:56px;
+  height:84px;
+  flex-wrap:wrap;align-content:center;row-gap:5px;
   background:linear-gradient(180deg,#eef2f6 0%,#dde4eb 100%);
   display:flex;align-items:center;padding:0 12px;gap:4px;
   box-shadow:0 2px 10px rgba(15,23,42,.08);
   border-bottom:1px solid #c5ced8;
   flex-shrink:0;
-  overflow-x:auto;
+  overflow:visible;
   scrollbar-width:none;
 }}
+.nav-break{{flex-basis:100%;height:0;width:0;margin:0;padding:0}}
 .topnav::-webkit-scrollbar{{display:none;}}
 .topnav-logo-wrap{{
   display:flex;align-items:center;flex-shrink:0;
@@ -7768,7 +7770,7 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 .build-info-pill.error{{background:#fee2e2;color:#991b1b}}
 .build-info-pill.info{{background:#e2e8f0;color:#475569}}
 @media(max-width:720px){{.build-info-cards{{grid-template-columns:repeat(2,minmax(0,1fr))}}.topnav-stamp{{display:none}}}}
-.frame-wrap{{height:calc(100vh - 56px);min-height:0;display:flex;flex-direction:column;overflow:hidden}}
+.frame-wrap{{height:calc(100vh - 84px);min-height:0;display:flex;flex-direction:column;overflow:hidden}}
 iframe{{flex:1;width:100%;border:none;display:none}}
 iframe.active{{display:block}}
 .vz-day-btn{{padding:7px 14px;border:1.5px solid #9db9d5;background:#fff;color:#1e6091;border-radius:7px;cursor:pointer;font-weight:800;font-size:12px;font-family:'Segoe UI',Arial,sans-serif;transition:all .15s;letter-spacing:.1px}}
@@ -7813,6 +7815,7 @@ iframe.active{{display:block}}
     </button>
     <div class="dd-menu" id="ddmenu-fa"></div>
   </div>
+  <div class="nav-break"></div>
   <button class="nav-btn" id="btn-zulage" onclick="showArea('zulage')">&#128176; Zulagen</button>
   <button class="nav-btn" id="btn-spesen" onclick="showArea('spesen')">&#128181; Spesen</button>
   <button class="nav-btn" id="btn-gk" onclick="showArea('gk')">&#127970; Gro&#223;kunden</button>
