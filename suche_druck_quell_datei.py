@@ -7928,7 +7928,7 @@ def _tourzuordnung_panel_html(tourzuordnung_html: str) -> str:
     if tourzuordnung_html:
         payload = json.dumps(tourzuordnung_html, ensure_ascii=False).replace("<", "\\u003c")
         body = (
-            '<iframe id="tz-frame" style="flex:1;width:100%;border:0;background:#f2f4f7"></iframe>'
+            '<iframe id="tz-frame" title="Tourzuordnung" style="display:block;flex:1;width:100%;border:0;background:#f2f4f7"></iframe>'
             '<script>window.TZ_HTML=' + payload + ';</script>'
         )
     else:
