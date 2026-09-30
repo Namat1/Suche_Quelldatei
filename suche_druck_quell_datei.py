@@ -7593,17 +7593,20 @@ function hupaInit(){
 
 
 
-# ── Tourzuordnung (Fahrer ↔ Touren, 4-Wochen-Plan) ───────────────────────────
+# ── Tourzuordnung (Fahrer ↔ Einsätze, 4-Wochen-Plan, So–Sa) ─────────────────
+# Quelle je Woche: Blatt "Druck Fahrer" (pro Fahrer: Uhrzeit-Zeile + Tour-Zeile,
+# je Tag zwei Slots) und Blatt "a Fahrer" (Gruppe Springer/Azubi/… in Spalte E).
 import html as _tz_html
-from collections import defaultdict as _tz_dd
 from datetime import datetime as _tz_datetime, time as _tz_time
 
-_TZ_WEEK_COLORS = {
-    1: ("#eaf2ff", "#4f83c6"),
-    2: ("#edf8ef", "#5f9b6d"),
-    3: ("#fff4df", "#c38a33"),
-    4: ("#f3ecfa", "#8a69ac"),
+_TZ_DAYS = ("So", "Mo", "Di", "Mi", "Do", "Fr", "Sa")
+_TZ_DAYS_LONG = ("Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag")
+_TZ_ABSENCE = {
+    "urlaub": "urlaub", "krank": "krank", "ausgleich": "ausgleich",
+    "elternzeit": "schule", "berufsschule": "schule", "fahrschule": "schule",
 }
+_TZ_HOF_KEYS = ("hof", "waschteam", "verladung", "verlandung", "kommi", "leergut", "werkstatt", "werksatt")
+_TZ_GROUP_ORDER = ("Stammfahrer", "Springer", "Azubi", "Umschüler", "538€-Kraft", "Hof", "Waschteam", "Spedition")
 
 
 def _tz_clean_text(value) -> str:
@@ -7615,15 +7618,15 @@ def _tz_clean_text(value) -> str:
     return re.sub(r"\s+", " ", value)
 
 
-def _tz_numeric_tour(value):
+def _tz_kf(value) -> str:
+    """KF-Nr. als Text ohne .0; leer bei 0/None."""
     if value is None:
-        return None
+        return ""
     try:
         n = int(float(value))
+        return str(n) if n > 0 else ""
     except (TypeError, ValueError):
-        return None
-    # Hilfs-/Kopfzeilen ausschließen. Reale Touren beginnen hier ab 1000.
-    return n if n >= 1000 else None
+        return _tz_clean_text(value)
 
 
 def _tz_format_excel_time(value) -> str:
@@ -7638,265 +7641,366 @@ def _tz_format_excel_time(value) -> str:
         h, m = divmod(minutes, 60)
         return f"{h:02d}:{m:02d}"
     text = _tz_clean_text(value)
-    # Bereits vorhandene Uhrzeit möglichst vereinheitlichen.
     for fmt in ("%H:%M:%S", "%H:%M"):
         try:
             return _tz_datetime.strptime(text, fmt).strftime("%H:%M")
         except ValueError:
             pass
-    return text
+    return ""  # "n. A." u. ä.
 
 
-def _tz_build_driver_map(ws):
-    """KF-Nr. -> Anzeigename aus Blatt 'a Fahrer'."""
-    mapping = {}
-    for row in ws.iter_rows(min_row=1, values_only=True):
-        if not row:
+def _tz_entry(value, time_value):
+    """Zellwert aus 'Druck Fahrer' -> {'label','kind','time'} oder None (frei)."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        n = int(float(value))
+        if n <= 0:
+            return None
+        return {"label": str(n), "kind": "tour", "time": _tz_format_excel_time(time_value)}
+    label = _tz_clean_text(value)
+    if not label:
+        return None
+    if re.fullmatch(r"\d+(\.0)?", label):
+        return _tz_entry(float(label), time_value)
+    low = label.lower()
+    if low in _TZ_ABSENCE:
+        return {"label": label, "kind": _TZ_ABSENCE[low], "time": ""}
+    if "z.b.v" in low or low.startswith("zbv"):
+        kind = "zbv"
+    elif any(k in low for k in _TZ_HOF_KEYS):
+        kind = "hof"
+    else:
+        kind = "sonder"
+    return {"label": label, "kind": kind, "time": _tz_format_excel_time(time_value)}
+
+
+def _tz_read_groups(wb) -> dict:
+    """KF-Nr. -> (Name, Gruppe) aus Blatt 'a Fahrer'."""
+    out = {}
+    if "a Fahrer" not in wb.sheetnames:
+        return out
+    for row in wb["a Fahrer"].iter_rows(min_row=1, values_only=True):
+        row = list(row) + [None] * 6
+        kf = _tz_kf(row[0])
+        last = _tz_clean_text(row[1])
+        if not kf or not last or not kf.isdigit():
             continue
-        key = _tz_clean_text(row[0] if len(row) > 0 else None)
-        last = _tz_clean_text(row[1] if len(row) > 1 else None)
-        first = _tz_clean_text(row[2] if len(row) > 2 else None)
-        if not key or not last:
-            continue
-        mapping[key] = f"{last} {first}".strip()
-    return mapping
+        first = _tz_clean_text(row[2])
+        group = _tz_clean_text(row[4]) or _tz_clean_text(row[5])
+        out[kf] = (f"{last} {first}".strip(), group)
+    return out
 
 
-def _tz_driver_name(last, first, driver_id, driver_map) -> str:
-    last = _tz_clean_text(last)
-    first = _tz_clean_text(first)
-    if last:
-        return f"{last} {first}".strip()
-    key = _tz_clean_text(driver_id)
-    return driver_map.get(key, "")
-
-
-def _tz_read_week(raw: bytes, week_number: int):
+def _tz_read_week(raw: bytes):
+    """Eine Wochen-Datei -> ({kf: {'name','days':[[entry,...] x7]}}, groups)."""
     import openpyxl as _opxl
     wb = _opxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    try:
+        if "Druck Fahrer" not in wb.sheetnames:
+            raise ValueError("Blatt 'Druck Fahrer' wurde nicht gefunden.")
+        groups = _tz_read_groups(wb)
+        rows = [list(r) + [None] * 20 for r in wb["Druck Fahrer"].iter_rows(min_row=1, values_only=True)]
+    finally:
+        wb.close()
 
-    if "Touren" not in wb.sheetnames:
-        raise ValueError("Blatt 'Touren' wurde nicht gefunden.")
-    if "a Fahrer" not in wb.sheetnames:
-        raise ValueError("Blatt 'a Fahrer' wurde nicht gefunden.")
+    # Tagesspalten aus der Kopfzeile ermitteln (Standard: E, G, I, K, M, O, Q)
+    day_cols = [4, 6, 8, 10, 12, 14, 16]
+    for r in rows[:8]:
+        found = {}
+        for idx, cell in enumerate(r):
+            txt = _tz_clean_text(cell).lower()
+            for d, name in enumerate(_TZ_DAYS_LONG):
+                if txt == name.lower():
+                    found[d] = idx
+        if len(found) == 7:
+            day_cols = [found[d] for d in range(7)]
+            break
 
-    driver_map = _tz_build_driver_map(wb["a Fahrer"])
-    ws = wb["Touren"]
-
-    records = []
-    for row in ws.iter_rows(min_row=1, values_only=True):
-        # A Tour, C KF1, D Name1, E V-Name1, F KF2, G Name2, H V-Name2, I Uhrzeit
-        tour = _tz_numeric_tour(row[0] if len(row) > 0 else None)
-        if tour is None:
+    week = {}
+    for i in range(len(rows) - 1):
+        top, bottom = rows[i], rows[i + 1]
+        if _tz_clean_text(bottom[3]).lower() != "tour":
             continue
-
-        primary = _tz_driver_name(
-            row[3] if len(row) > 3 else None,
-            row[4] if len(row) > 4 else None,
-            row[2] if len(row) > 2 else None,
-            driver_map,
-        )
-        secondary = _tz_driver_name(
-            row[6] if len(row) > 6 else None,
-            row[7] if len(row) > 7 else None,
-            row[5] if len(row) > 5 else None,
-            driver_map,
-        )
-
-        # Logik der bisherigen Auswertung:
-        # Fahrer 1 verwenden; wenn dort niemand steht, Fahrer 2 verwenden.
-        name = primary or secondary
+        kf = _tz_kf(top[0])
+        if not kf:
+            continue
+        name = f"{_tz_clean_text(top[1])} {_tz_clean_text(top[2])}".strip()
+        if not name:
+            name = groups.get(kf, ("", ""))[0]
         if not name:
             continue
+        days = []
+        for col in day_cols:
+            entries = []
+            for c in (col, col + 1):  # zwei Einsatz-Slots je Tag
+                e = _tz_entry(bottom[c], top[c])
+                if e:
+                    entries.append(e)
+            days.append(entries)
+        if kf in week:  # doppelte Zeilen (z. B. zweimal gelistet) zusammenführen
+            for d in range(7):
+                for e in days[d]:
+                    if e not in week[kf]["days"][d]:
+                        week[kf]["days"][d].append(e)
+        else:
+            week[kf] = {"name": name, "days": days}
+    return week, groups
 
-        records.append(
-            {
-                "name": name,
-                "week": week_number,
-                "time": _tz_format_excel_time(row[8] if len(row) > 8 else None),
-                "tour": tour,
-            }
+
+def _tz_group_for(kf: str, group: str) -> str:
+    g = (group or "").strip()
+    if g:
+        return g
+    try:
+        if int(kf) >= 8000:
+            return "Spedition"
+    except ValueError:
+        pass
+    return "Stammfahrer"
+
+
+def _tz_cell_html(entries) -> str:
+    if not entries:
+        return '<div class="tz-free">frei</div>'
+    parts = []
+    for e in entries:
+        t = f'<span class="tz-t">{_tz_html.escape(e["time"])}</span>' if e["time"] else ""
+        shown = "z.b.v." if e["kind"] == "zbv" else e["label"]
+        parts.append(
+            f'<div class="tz-e k-{e["kind"]}" title="{_tz_html.escape(e["label"])}">'
+            f'<span class="tz-l">{_tz_html.escape(shown)}</span>{t}</div>'
         )
-
-    wb.close()
-    return records
+    return "".join(parts)
 
 
-def _tz_read_springer(raw: bytes):
-    """Springer direkt aus dem Blatt 'a Fahrer' lesen."""
-    import openpyxl as _opxl
-    wb = _opxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-    if "a Fahrer" not in wb.sheetnames:
-        wb.close()
-        return []
-
-    ws = wb["a Fahrer"]
-    result = []
-    seen = set()
-
-    for row in ws.iter_rows(min_row=1, values_only=True):
-        number = _tz_clean_text(row[0] if len(row) > 0 else None)
-        last = _tz_clean_text(row[1] if len(row) > 1 else None)
-        first = _tz_clean_text(row[2] if len(row) > 2 else None)
-        group_e = _tz_clean_text(row[4] if len(row) > 4 else None).lower()
-        group_f = _tz_clean_text(row[5] if len(row) > 5 else None).lower()
-
-        if "springer" not in {group_e, group_f}:
-            continue
-        if not last:
-            continue
-
-        name = f"{last} {first}".strip()
-        key = (number, name)
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append({"number": number, "name": name})
-
-    wb.close()
-    result.sort(key=lambda x: x["name"].casefold())
-    return result
-
-
-def _tz_sort_records(records):
-    return sorted(
-        records,
-        key=lambda r: (
-            r["name"].casefold(),
-            r["week"],
-            r["tour"],
-            r["time"],
-        ),
-    )
-
-
-def _tz_build_html(records, springer):
-    records = _tz_sort_records(records)
-    grouped = _tz_dd(lambda: _tz_dd(list))
-    for r in records:
-        grouped[r["name"]][r["week"]].append(r)
-
-    driver_names = sorted(grouped, key=str.casefold)
-    unique_tours = len({r["tour"] for r in records})
-
-    springer_cards = "".join(
-        f'<div class="springer-card"><span>{_tz_html.escape(s["name"])}</span>'
-        f'<b>{_tz_html.escape(s["number"])}</b></div>'
-        for s in springer
-    ) or '<div class="muted">Keine Springer gefunden.</div>'
-
-    driver_blocks = []
-    for name in driver_names:
-        week_rows = []
-        for week in range(1, 5):
-            entries = grouped[name].get(week, [])
-            bg, accent = _TZ_WEEK_COLORS[week]
-            if entries:
-                entry_html = "".join(
-                    f'''<div class="tour-row">
-                        <span class="tour-no">{r["tour"]}</span>
-                        <span class="time">{_tz_html.escape(r["time"] or "–")}</span>
-                    </div>'''
-                    for r in entries
-                )
-            else:
-                entry_html = '<div class="empty-week">keine Tour</div>'
-
-            week_rows.append(
-                f'''<div class="week-box" style="--week-bg:{bg};--week-accent:{accent}">
-                    <div class="week-head">Woche {week}</div>
-                    <div class="week-content">{entry_html}</div>
-                </div>'''
-            )
-
-        driver_blocks.append(
-            f'''<section class="driver-card" data-name="{_tz_html.escape(name.lower())}">
-                <div class="driver-name">{_tz_html.escape(name)}</div>
-                <div class="weeks">{"".join(week_rows)}</div>
-            </section>'''
-        )
-
-    return f'''<!doctype html>
+_TZ_TEMPLATE = r"""<!doctype html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Fahrer- & Tourenübersicht</title>
+<title>Tourzuordnung</title>
 <style>
-:root{{--bg:#f2f4f7;--card:#fff;--text:#172235;--muted:#6f7b8b;--line:#d9dfe7;--navy:#1c395a;--navy2:#294f78;}}
-*{{box-sizing:border-box}}
-body{{margin:0;background:var(--bg);color:var(--text);font-family:Segoe UI,Arial,sans-serif}}
-.app{{width:min(1240px,calc(100% - 28px));margin:auto;padding:24px 0 46px}}
-.header{{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:16px}}
-h1{{margin:0;color:var(--navy);font-size:30px;letter-spacing:-.03em}}
-.subtitle{{margin-top:5px;color:var(--muted);font-size:14px}}
-.metrics{{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}}
-.metric{{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:12px;color:var(--muted)}}
-.metric b{{font-size:15px;color:var(--navy);margin-right:4px}}
-.toolbar{{display:flex;gap:10px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:13px;padding:11px;margin-bottom:13px;box-shadow:0 5px 15px rgba(25,40,60,.05)}}
-.search{{flex:1;min-width:250px}}
-.search input{{width:100%;height:42px;border:1px solid #cbd3dd;border-radius:9px;padding:0 13px;font-size:14px;outline:none}}
-.search input:focus{{border-color:#8fa7c4;box-shadow:0 0 0 3px rgba(41,79,120,.08)}}
-button{{height:42px;border:1px solid #cbd3dd;border-radius:9px;background:#fff;color:#405069;padding:0 13px;font-weight:700;cursor:pointer}}
-button:hover{{border-color:#9ca9ba}}
-.springer{{background:#fff;border:1px solid var(--line);border-radius:13px;margin-bottom:14px;overflow:hidden}}
-.springer-head{{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:#f8fafc;border-bottom:1px solid var(--line);font-weight:800;color:var(--navy)}}
-.springer-head span{{background:#b87531;color:#fff;border-radius:999px;padding:3px 8px;font-size:11px;margin-left:6px}}
-.springer-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;padding:12px}}
-.springer-card{{display:flex;justify-content:space-between;gap:8px;background:#fff8ef;border:1px solid #ead9c4;border-left:4px solid #c88a42;border-radius:8px;padding:8px 9px;font-size:12px;font-weight:700}}
-.springer-card b{{font-size:10px;color:#94612b;background:#fff;border:1px solid #e5cda9;border-radius:999px;padding:2px 6px;white-space:nowrap}}
-.springer-body.collapsed{{display:none}}
-.driver-card{{background:#fff;border:1px solid var(--line);border-radius:14px;margin-bottom:10px;box-shadow:0 4px 13px rgba(25,40,60,.045);overflow:hidden}}
-.driver-name{{padding:11px 14px;background:linear-gradient(180deg,#294f78,#1c395a);color:#fff;font-size:15px;font-weight:800;letter-spacing:.01em}}
-.weeks{{display:grid;grid-template-columns:repeat(4,1fr);gap:0}}
-.week-box{{background:var(--week-bg);border-right:1px solid rgba(90,100,115,.18);min-height:88px}}
-.week-box:last-child{{border-right:0}}
-.week-head{{padding:7px 10px;border-bottom:1px solid rgba(90,100,115,.14);border-top:3px solid var(--week-accent);font-size:11px;font-weight:850;color:#38465a;text-transform:uppercase;letter-spacing:.05em}}
-.week-content{{padding:6px 9px 8px}}
-.tour-row{{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(90,100,115,.11)}}
-.tour-row:last-child{{border-bottom:0}}
-.tour-no{{font-weight:850;color:#203a59;font-variant-numeric:tabular-nums}}
-.time{{color:#536175;font-size:12px;font-variant-numeric:tabular-nums}}
-.empty-week{{padding:8px 0;color:#9199a5;font-size:12px;font-style:italic}}
-.muted{{color:var(--muted);font-size:12px;padding:5px}}
-.hidden{{display:none!important}}
-.footer{{color:var(--muted);font-size:11px;text-align:right;margin-top:10px}}
-@media(max-width:900px){{.springer-grid{{grid-template-columns:repeat(2,1fr)}}.weeks{{grid-template-columns:repeat(2,1fr)}}.week-box:nth-child(2){{border-right:0}}}}
-@media(max-width:620px){{.app{{width:calc(100% - 14px);padding-top:12px}}.header{{align-items:flex-start;flex-direction:column}}.metrics{{justify-content:flex-start}}.toolbar{{align-items:stretch;flex-direction:column}}.springer-grid{{grid-template-columns:1fr}}.weeks{{grid-template-columns:1fr}}.week-box{{border-right:0;border-bottom:1px solid rgba(90,100,115,.18)}}}}
-@media print{{body{{background:#fff}}.app{{width:100%;padding:0}}.toolbar,.springer,.metrics,.footer{{display:none!important}}.driver-card{{box-shadow:none;break-inside:avoid}}.driver-name{{background:#1c395a!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}.week-box{{-webkit-print-color-adjust:exact;print-color-adjust:exact}}@page{{size:A4 landscape;margin:8mm}}}}
+:root{--bg:#eef2f6;--card:#fff;--ink:#132238;--muted:#66758a;--line:#d7dfe8;--navy:#1c395a;
+--tour:#1e5fa8;--tour-bg:#e8f0fb;--sonder:#6d3fb0;--sonder-bg:#f1eafb;--zbv:#a86200;--zbv-bg:#fff2dc;
+--hof:#0f7a6e;--hof-bg:#e1f5f1;--urlaub:#23813b;--urlaub-bg:#e4f6e8;--krank:#b42333;--krank-bg:#fde8ea;
+--ausgleich:#4f5f78;--ausgleich-bg:#e8edf4;--schule:#6b7280;--schule-bg:#f0f1f3}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Segoe UI',Arial,sans-serif;font-size:13px}
+.app{width:min(1500px,calc(100% - 28px));margin:auto;padding:20px 0 40px}
+.head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+h1{margin:0;font-size:24px;color:var(--navy);letter-spacing:-.02em}
+.sub{color:var(--muted);font-size:12.5px;margin-top:3px}
+.metrics{display:flex;gap:8px;flex-wrap:wrap}
+.metric{background:#fff;border:1px solid var(--line);border-radius:10px;padding:7px 12px;font-size:11.5px;color:var(--muted)}
+.metric b{display:block;font-size:17px;color:var(--navy);font-variant-numeric:tabular-nums}
+.bar{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0 10px}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px;box-shadow:0 4px 14px rgba(20,40,70,.05)}
+.tools input[type=search]{flex:1;min-width:220px;height:36px;border:1px solid #c9d3de;border-radius:8px;padding:0 12px;font-size:13px;outline:none}
+.tools input[type=search]:focus{border-color:#7f9bbd;box-shadow:0 0 0 3px rgba(40,80,130,.1)}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chip{height:30px;border:1px solid #c9d3de;background:#f7f9fb;color:#3c4b60;border-radius:999px;padding:0 11px;font-size:11.5px;font-weight:700;cursor:pointer}
+.chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.chip small{opacity:.7;font-weight:600;margin-left:3px}
+.tgl{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:#3c4b60;cursor:pointer;white-space:nowrap}
+.btn{height:32px;border:1px solid #c9d3de;border-radius:8px;background:#fff;color:#334155;padding:0 12px;font-weight:700;cursor:pointer}
+.legend{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:var(--muted);align-items:center}
+.legend .tz-e{display:inline-flex;min-height:0;padding:2px 7px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden;box-shadow:0 3px 10px rgba(20,40,70,.04)}
+.card-h{display:flex;align-items:center;gap:10px;padding:8px 12px;background:linear-gradient(180deg,#27496f,#1c395a);color:#fff}
+.card-h .nm{font-size:14px;font-weight:800}
+.card-h .kf{font-size:11px;font-weight:700;background:rgba(255,255,255,.16);border-radius:6px;padding:1px 7px;font-variant-numeric:tabular-nums}
+.card-h .grp{font-size:10.5px;font-weight:800;border-radius:999px;padding:2px 8px;background:#fff;color:var(--navy)}
+.card-h .grp.g-Springer{background:#ffe6c7;color:#8a4b00}.card-h .grp.g-Azubi{background:#dff3e4;color:#1d6b35}
+.card-h .grp.g-Spedition{background:#e5e7eb;color:#374151}
+.card-h .stats{margin-left:auto;display:flex;gap:10px;font-size:11px;opacity:.9;white-space:nowrap}
+.card-h .stats b{font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th,td{border-right:1px solid #e6ebf1;border-bottom:1px solid #e6ebf1;vertical-align:top}
+th:last-child,td:last-child{border-right:0}
+tr:last-child td{border-bottom:0}
+thead th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:#526179;background:#f6f8fb;padding:5px 6px;text-align:left;font-weight:800}
+thead th.we,td.we{background:#fafbfd}
+th.wk{width:74px}
+td.wk{font-size:11px;font-weight:800;color:#526179;padding:7px 8px;background:#f6f8fb;white-space:nowrap}
+td{padding:4px}
+.tz-e{display:flex;justify-content:space-between;align-items:center;gap:4px;border-radius:6px;padding:4px 6px;margin-bottom:3px;font-size:11.5px;font-weight:700;border-left:3px solid;min-height:26px}
+.tz-e:last-child{margin-bottom:0}
+.tz-l{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tz-t{font-size:10.5px;font-weight:600;opacity:.8;font-variant-numeric:tabular-nums;flex-shrink:0}
+.k-tour{background:var(--tour-bg);border-color:var(--tour);color:var(--tour)}
+.k-tour .tz-l{font-size:13px;font-weight:850;font-variant-numeric:tabular-nums}
+.k-sonder{background:var(--sonder-bg);border-color:var(--sonder);color:var(--sonder)}
+.k-zbv{background:var(--zbv-bg);border-color:var(--zbv);color:var(--zbv)}
+.k-hof{background:var(--hof-bg);border-color:var(--hof);color:var(--hof)}
+.k-urlaub{background:var(--urlaub-bg);border-color:var(--urlaub);color:var(--urlaub)}
+.k-krank{background:var(--krank-bg);border-color:var(--krank);color:var(--krank)}
+.k-ausgleich{background:var(--ausgleich-bg);border-color:var(--ausgleich);color:var(--ausgleich)}
+.k-schule{background:var(--schule-bg);border-color:var(--schule);color:var(--schule)}
+.tz-free{min-height:26px;display:flex;align-items:center;justify-content:center;border:1px dashed #d3dbe5;border-radius:6px;color:#9aa6b6;font-size:11px;font-style:italic}
+.idle{background:#fff;border:1px solid var(--line);border-radius:12px;margin-top:14px}
+.idle-h{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;font-weight:800;color:var(--navy);cursor:pointer}
+.idle-grid{display:none;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;padding:0 12px 12px}
+.idle.open .idle-grid{display:grid}
+.idle-it{display:flex;justify-content:space-between;gap:6px;border:1px solid #e3e8ef;border-radius:8px;padding:6px 8px;font-size:12px;font-weight:700}
+.idle-it span{color:var(--muted);font-weight:600;font-size:11px}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+.hidden{display:none!important}
+@media(max-width:900px){.card-h .stats{display:none}.tz-t{display:none}}
+@media print{body{background:#fff;font-size:11px}.app{width:100%;padding:0}.bar,.metrics,.idle{display:none!important}
+.card{box-shadow:none;break-inside:avoid;margin-bottom:6px}
+.card-h,.tz-e,thead th,td.wk{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+@page{size:A4 landscape;margin:7mm}}
 </style>
 </head>
 <body>
 <div class="app">
-  <header class="header">
-    <div><h1>Fahrer- & Tourenübersicht</h1><div class="subtitle">Vier-Wochen-Plan je Fahrer</div></div>
-    <div class="metrics"><div class="metric"><b>{len(driver_names)}</b>Fahrer</div><div class="metric"><b>{len(records)}</b>Einträge</div><div class="metric"><b>{unique_tours}</b>Touren</div><div class="metric"><b>{len(springer)}</b>Springer</div></div>
-  </header>
-
-  <div class="toolbar">
-    <div class="search"><input id="search" type="search" placeholder="Fahrer suchen …"></div>
-    <button onclick="window.print()">Drucken</button>
+  <div class="head">
+    <div><h1>Tourzuordnung</h1><div class="sub">Einsätze je Fahrer · 4 Wochen · Sonntag–Samstag (Schichtbeginn)</div></div>
+    <div class="metrics">%%METRICS%%</div>
   </div>
-
-  <section class="springer">
-    <div class="springer-head"><div>Fahrer ohne feste Touren <span>{len(springer)}</span></div><button id="toggleSpringer">Liste ausblenden</button></div>
-    <div class="springer-body" id="springerBody"><div class="springer-grid">{springer_cards}</div></div>
+  <div class="bar">
+    <div class="tools">
+      <input id="q" type="search" placeholder="Fahrer, KF-Nr. oder Tour suchen …">
+      <div class="chips" id="chips">%%CHIPS%%</div>
+      <label class="tgl"><input type="checkbox" id="sped"> Speditionen</label>
+      <button class="btn" onclick="window.print()">Drucken</button>
+    </div>
+    <div class="legend">
+      <span class="tz-e k-tour"><span class="tz-l">Tour</span></span>
+      <span class="tz-e k-sonder"><span class="tz-l">Sonder (Popp, Füngers, Umfuhr …)</span></span>
+      <span class="tz-e k-zbv"><span class="tz-l">z.b.v.</span></span>
+      <span class="tz-e k-hof"><span class="tz-l">Hof / Waschteam</span></span>
+      <span class="tz-e k-urlaub"><span class="tz-l">Urlaub</span></span>
+      <span class="tz-e k-krank"><span class="tz-l">Krank</span></span>
+      <span class="tz-e k-ausgleich"><span class="tz-l">Ausgleich</span></span>
+      <span class="tz-e k-schule"><span class="tz-l">Schule / Elternzeit</span></span>
+    </div>
+  </div>
+  <main id="cards">%%CARDS%%</main>
+  <div class="empty hidden" id="none">Keine Fahrer für diese Auswahl.</div>
+  <section class="idle" id="idle">
+    <div class="idle-h" onclick="this.parentNode.classList.toggle('open')"><span>Ohne Einsatz in allen 4 Wochen (%%IDLE_N%%)</span><span>&#9662;</span></div>
+    <div class="idle-grid">%%IDLE%%</div>
   </section>
-
-  <main id="drivers">{"".join(driver_blocks)}</main>
-  <div class="footer">Erstellt mit Fahrer Touren HTML Generator</div>
 </div>
 <script>
-const search=document.getElementById('search');
-const cards=[...document.querySelectorAll('.driver-card')];
-search.addEventListener('input',()=>{{const q=search.value.trim().toLowerCase();cards.forEach(c=>c.classList.toggle('hidden',q && !c.dataset.name.includes(q)));}});
-const body=document.getElementById('springerBody');
-const toggle=document.getElementById('toggleSpringer');
-toggle.addEventListener('click',()=>{{const hidden=body.classList.toggle('collapsed');toggle.textContent=hidden?'Liste anzeigen':'Liste ausblenden';}});
+(function(){
+  var cards=[].slice.call(document.querySelectorAll('.card'));
+  var q=document.getElementById('q'),sped=document.getElementById('sped'),none=document.getElementById('none');
+  var group='';
+  function apply(){
+    var s=q.value.trim().toLowerCase(),n=0;
+    cards.forEach(function(c){
+      var g=c.getAttribute('data-group');
+      var ok=(!s||c.getAttribute('data-s').indexOf(s)>=0)
+        &&(group?g===group:(g!=='Spedition'||sped.checked));
+      c.classList.toggle('hidden',!ok); if(ok)n++;
+    });
+    none.classList.toggle('hidden',n>0);
+  }
+  document.getElementById('chips').addEventListener('click',function(e){
+    var b=e.target.closest('.chip'); if(!b)return;
+    group=b.getAttribute('data-g')||'';
+    [].forEach.call(this.querySelectorAll('.chip'),function(x){x.classList.toggle('on',x===b);});
+    apply();
+  });
+  q.addEventListener('input',apply); sped.addEventListener('change',apply); apply();
+})();
 </script>
 </body>
-</html>'''
+</html>"""
 
+
+def _tz_build_html(weeks: list, groups: dict) -> str:
+    """weeks: Liste von 4 Dicts {kf: {'name','days'}} -> fertige HTML."""
+    all_kf = set()
+    for w in weeks:
+        all_kf.update(w.keys())
+
+    drivers = []
+    for kf in all_kf:
+        name = next((w[kf]["name"] for w in weeks if kf in w), "") or groups.get(kf, ("", ""))[0]
+        grid = [w[kf]["days"] if kf in w else [[] for _ in range(7)] for w in weeks]
+        drivers.append({
+            "kf": kf, "name": name,
+            "group": _tz_group_for(kf, groups.get(kf, ("", ""))[1]),
+            "grid": grid,
+        })
+    drivers.sort(key=lambda d: (d["name"].casefold(), d["kf"]))
+
+    active, idle = [], []
+    for d in drivers:
+        (active if any(day for wk in d["grid"] for day in wk) else idle).append(d)
+
+    head = '<thead><tr><th class="wk"></th>' + "".join(
+        f'<th class="{"we" if i in (0, 6) else ""}">{_TZ_DAYS_LONG[i]}</th>' for i in range(7)
+    ) + "</tr></thead>"
+
+    tot = {"tour": 0, "sonder": 0, "abw": 0}
+    cards = []
+    for d in active:
+        cnt = {"tour": 0, "sonder": 0, "frei": 0, "abw": 0}
+        tours = set()
+        body = []
+        for wi, wk in enumerate(d["grid"], start=1):
+            tds = []
+            for di, entries in enumerate(wk):
+                if not entries:
+                    cnt["frei"] += 1
+                for e in entries:
+                    if e["kind"] == "tour":
+                        cnt["tour"] += 1
+                        tours.add(e["label"])
+                    elif e["kind"] in ("urlaub", "krank", "ausgleich", "schule"):
+                        cnt["abw"] += 1
+                    else:
+                        cnt["sonder"] += 1
+                        tours.add(e["label"].lower())
+                tds.append(f'<td class="{"we" if di in (0, 6) else ""}">{_tz_cell_html(entries)}</td>')
+            body.append(f'<tr><td class="wk">Woche {wi}</td>{"".join(tds)}</tr>')
+        if d["group"] != "Spedition":
+            for k in ("tour", "sonder", "abw"):
+                tot[k] += cnt[k]
+        search = " ".join([d["name"].lower(), d["kf"], d["group"].lower()] + sorted(tours))
+        grp_badge = (f'<span class="grp g-{_tz_html.escape(d["group"].split()[0])}">{_tz_html.escape(d["group"])}</span>'
+                     if d["group"] != "Stammfahrer" else "")
+        cards.append(
+            f'<section class="card driver-card" data-group="{_tz_html.escape(d["group"])}" '
+            f'data-s="{_tz_html.escape(search)}">'
+            f'<div class="card-h"><span class="nm">{_tz_html.escape(d["name"])}</span>'
+            f'<span class="kf">{_tz_html.escape(d["kf"])}</span>{grp_badge}'
+            f'<span class="stats"><span><b>{cnt["tour"]}</b> Touren</span><span><b>{cnt["sonder"]}</b> Sonder/z.b.v.</span>'
+            f'<span><b>{cnt["frei"]}</b> frei</span><span><b>{cnt["abw"]}</b> abwesend</span></span></div>'
+            f'<table>{head}<tbody>{"".join(body)}</tbody></table></section>'
+        )
+
+    present = {d["group"] for d in active}
+    chip_groups = [g for g in _TZ_GROUP_ORDER if g in present] + sorted(present - set(_TZ_GROUP_ORDER))
+    chips = '<button class="chip on" data-g="">Alle</button>' + "".join(
+        f'<button class="chip" data-g="{_tz_html.escape(g)}">{_tz_html.escape(g)}'
+        f'<small>{sum(1 for d in active if d["group"] == g)}</small></button>'
+        for g in chip_groups
+    )
+    own = sum(1 for d in active if d["group"] != "Spedition")
+    metrics = (
+        f'<div class="metric"><b>{own}</b>Fahrer im Einsatz</div>'
+        f'<div class="metric"><b>{tot["tour"]}</b>Tour-Einsätze</div>'
+        f'<div class="metric"><b>{tot["sonder"]}</b>Sonder / z.b.v.</div>'
+        f'<div class="metric"><b>{tot["abw"]}</b>Abwesenheiten</div>'
+    )
+    idle_html = "".join(
+        f'<div class="idle-it">{_tz_html.escape(d["name"])}<span>{_tz_html.escape(d["kf"])} · {_tz_html.escape(d["group"])}</span></div>'
+        for d in idle if d["group"] != "Spedition"
+    ) or '<div class="idle-it">Keine</div>'
+    idle_n = sum(1 for d in idle if d["group"] != "Spedition")
+
+    return (_TZ_TEMPLATE
+            .replace("%%METRICS%%", metrics)
+            .replace("%%CHIPS%%", chips)
+            .replace("%%CARDS%%", "".join(cards))
+            .replace("%%IDLE_N%%", str(idle_n))
+            .replace("%%IDLE%%", idle_html))
 
 
 def parse_tourzuordnung_excel(uploaded_files) -> str:
@@ -7915,12 +8019,16 @@ def parse_tourzuordnung_excel(uploaded_files) -> str:
         named = [(i, n, u) for i, (_, n, u) in enumerate(named, start=1)]
     else:
         named.sort(key=lambda t: t[0])
-    payloads = [(w, read_upload_bytes(u)) for w, _, u in named]
-    all_records = []
-    for week, raw in payloads:
-        all_records.extend(_tz_read_week(raw, week))
-    springer = _tz_read_springer(payloads[0][1])
-    return _tz_build_html(all_records, springer)
+    week_data, groups = [], {}
+    for week_no, fname, up in named:
+        try:
+            data, grp = _tz_read_week(read_upload_bytes(up))
+        except Exception as exc:
+            raise ValueError(f"Woche {week_no} ({fname}): {exc}") from exc
+        week_data.append(data)
+        for k, v in grp.items():
+            groups.setdefault(k, v)
+    return _tz_build_html(week_data, groups)
 
 
 def _tourzuordnung_panel_html(tourzuordnung_html: str) -> str:
@@ -15578,7 +15686,7 @@ def _build_generation_metadata(ready_instances: list, generated_at: datetime.dat
         {"label": "Schichten / Tachograph", "value": str(shift_count), "detail": f"{len(timerec) if isinstance(timerec, dict) else 0} Fahrer"},
         {"label": "Verstöße", "value": str(violations.get("total_violations", 0) if isinstance(violations, dict) else 0), "detail": f"{len(violations.get('drivers', [])) if isinstance(violations, dict) else 0} Fahrer"},
         {"label": "Spesen", "value": str(expenses.get("total_rows", 0) if isinstance(expenses, dict) else 0), "detail": f"{len(expenses.get('drivers', [])) if isinstance(expenses, dict) else 0} Fahrer"},
-        {"label": "Tourzuordnung", "value": str(str(st.session_state.get("tourzuordnung_html", "") or "").count('class="driver-card"')), "detail": "Fahrer (4 Wochen)"},
+        {"label": "Tourzuordnung", "value": str(str(st.session_state.get("tourzuordnung_html", "") or "").count(' driver-card"')), "detail": "Fahrer (4 Wochen)"},
         {"label": "Großkunden", "value": str(len(big_customers) if isinstance(big_customers, list) else 0), "detail": "Kunden"},
         {"label": "Spediteure", "value": str(len(carriers.get("fahrten", [])) if isinstance(carriers, dict) else 0), "detail": "Fahrten"},
         {"label": "Fahrerbewertung", "value": str(len(driver_rating.get("drivers", [])) if isinstance(driver_rating, dict) else 0), "detail": "Fahrer"},
@@ -16293,10 +16401,10 @@ with tab_extra:
 
         def _tz_summary(ups):
             page = st.session_state.get("tourzuordnung_html", "") or ""
-            drivers = page.count('class="driver-card"')
+            drivers = page.count(' driver-card"')
             return f"{len(ups)} Wochen-Dateien, {drivers} Fahrer zugeordnet"
         _extra_multi_upload(
-            "Tourzuordnung (4 Excel-Wochen: Vorlage Tour 1-4.xlsx)", ["xlsx"], "tourzuordnung",
+            "Tourzuordnung (4 Excel-Wochen: Vorlage Tour 1-4.xlsx, Blatt „Druck Fahrer“)", ["xlsx"], "tourzuordnung",
             {"tourzuordnung_html": parse_tourzuordnung_excel},
             summary_fn=_tz_summary,
             spinner_text="Verarbeite Tourzuordnung ...",
