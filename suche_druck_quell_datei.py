@@ -7654,17 +7654,19 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
   overflow:visible;
   scrollbar-width:none;
 }}
-.nav-rows{{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px}}
-.nav-row{{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:nowrap}}
-.nav-row .nav-btn,.nav-row .nav-dd-btn{{padding:6px 12px}}
-.nav-logo-side{{width:170px;display:flex;align-items:center;flex-shrink:0}}
+.nav-rows{{flex:1;min-width:0;display:grid;grid-template-columns:repeat(6,minmax(0,182px));gap:6px;justify-content:center;align-content:center}}
+.nav-row{{display:contents}}
+.nav-rows .nav-dd{{width:100%}}
+.nav-rows .nav-btn,.nav-rows .nav-dd-btn{{width:100%;justify-content:center;text-align:center;padding:7px 8px;font-size:12px;display:flex;align-items:center;gap:4px}}
+.nav-logo-side{{width:190px;display:flex;align-items:center;flex-shrink:0}}
 .topnav::-webkit-scrollbar{{display:none;}}
 .topnav-logo-wrap{{
   display:flex;align-items:center;flex-shrink:0;
   padding-right:4px;
 }}
 .topnav-logo{{
-  height:36px;
+  height:auto;
+  max-width:100%;max-height:48px;
   width:auto;
   display:block;
   object-fit:contain;
@@ -7740,7 +7742,7 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
 }}
 @media(max-width:1850px){{
   .topnav{{padding:0 8px;gap:3px}}
-  .topnav-logo{{height:30px}}
+
   .nav-sep{{margin:0 2px}}
   .nav-btn,.nav-dd-btn{{padding:5px 7px;font-size:11px}}
   .inst-label{{max-width:68px;font-size:8px;padding:1px 4px;margin-left:3px}}
@@ -7819,9 +7821,9 @@ iframe.active{{display:block}}
     </button>
     <div class="dd-menu" id="ddmenu-fa"></div>
   </div>
+  <button class="nav-btn" id="btn-zulage" onclick="showArea('zulage')">&#128176; Zulagen</button>
   </div>
   <div class="nav-row">
-  <button class="nav-btn" id="btn-zulage" onclick="showArea('zulage')">&#128176; Zulagen</button>
   <button class="nav-btn" id="btn-spesen" onclick="showArea('spesen')">&#128181; Spesen</button>
   <button class="nav-btn" id="btn-gk" onclick="showArea('gk')">&#127970; Gro&#223;kunden</button>
   <button class="nav-btn" id="btn-hupa" onclick="showArea('hupa')">&#128230; HuPa</button>
