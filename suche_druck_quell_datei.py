@@ -1,4 +1,4 @@
-# =============================================================================
+a# =============================================================================
 # app.py  -  Kombinierter Generator: Suche + Fahrzeugwäsche  ->  eine app.html
 # =============================================================================
 # Die erzeugte suche.html ist vollstaendig eigenstaendig.
@@ -7845,7 +7845,7 @@ td{padding:4px}
 .k-ausgleich{background:var(--ausgleich-bg);border-color:var(--ausgleich);color:var(--ausgleich)}
 .k-schule{background:var(--schule-bg);border-color:var(--schule);color:var(--schule)}
 .tz-free{min-height:26px;display:flex;align-items:center;justify-content:center;border:1px dashed #d3dbe5;border-radius:6px;color:#9aa6b6;font-size:11px;font-style:italic}
-.idle{background:#fff;border:1px solid var(--line);border-radius:12px;margin-top:14px}
+.idle{background:#fff;border:1px solid var(--line);border-left:4px solid #c88a42;border-radius:12px;margin:0 0 12px}
 .idle-h{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;font-weight:800;color:var(--navy);cursor:pointer}
 .idle-grid{display:none;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;padding:0 12px 12px}
 .idle.open .idle-grid{display:grid}
@@ -7884,12 +7884,12 @@ td{padding:4px}
       <span class="tz-e k-schule"><span class="tz-l">Schule / Elternzeit</span></span>
     </div>
   </div>
-  <main id="cards">%%CARDS%%</main>
-  <div class="empty hidden" id="none">Keine Fahrer für diese Auswahl.</div>
-  <section class="idle" id="idle">
+  <section class="idle open" id="idle">
     <div class="idle-h" onclick="this.parentNode.classList.toggle('open')"><span>Ohne Einsatz in allen 4 Wochen (%%IDLE_N%%)</span><span>&#9662;</span></div>
     <div class="idle-grid">%%IDLE%%</div>
   </section>
+  <main id="cards">%%CARDS%%</main>
+  <div class="empty hidden" id="none">Keine Fahrer für diese Auswahl.</div>
 </div>
 <script>
 (function(){
