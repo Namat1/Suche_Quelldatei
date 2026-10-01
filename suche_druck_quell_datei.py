@@ -7755,6 +7755,16 @@ def _tz_is_spedition(kf: str) -> bool:
         return False
 
 
+def _tz_is_azubi(kf: str, group: str) -> bool:
+    """Lehrling laut 'a Fahrer' (Gruppe 'Azubi'); Fallback KF-Bereich 6001–6999."""
+    if (group or "").strip().lower() in ("azubi", "auszubildender", "lehrling"):
+        return True
+    try:
+        return 6001 <= int(kf) <= 6999 and not (group or "").strip()
+    except ValueError:
+        return False
+
+
 def _tz_group_for(kf: str, grid) -> str:
     """Klassifizierung ausschließlich über die Zuordnung (nicht über 'a Fahrer'):
     Fest = in allen 4 Wochen eingeplant (Einsatz oder Abwesenheit),
@@ -7852,6 +7862,12 @@ td{padding:4px}
 .idle.open .idle-grid{display:grid}
 .idle-it{display:flex;justify-content:space-between;gap:6px;border:1px solid #e3e8ef;border-radius:8px;padding:6px 8px;font-size:12px;font-weight:700}
 .idle-it span{color:var(--muted);font-weight:600;font-size:11px}
+.idle-it.az{background:#ecfccb;border-color:#a3c95a;color:#3f6212}
+.idle-it.az span{color:#4d7c0f}
+.idle-sep{grid-column:1/-1;margin-top:6px;padding-top:8px;border-top:1px dashed #cbd5e1;font-size:11px;font-weight:800;color:#4d7c0f;text-transform:uppercase;letter-spacing:.05em}
+.card-h .grp.g-Azubi{background:#ecfccb;color:#3f6212}
+.card.azubi{border-color:#a3c95a}
+.card.azubi .card-h{background:linear-gradient(180deg,#5a8a1f,#3f6212)}
 .empty{padding:40px;text-align:center;color:var(--muted)}
 .hidden{display:none!important}
 @media(max-width:900px){.card-h .stats{display:none}.tz-t{display:none}}
@@ -7883,6 +7899,7 @@ td{padding:4px}
       <span class="tz-e k-krank"><span class="tz-l">Krank</span></span>
       <span class="tz-e k-ausgleich"><span class="tz-l">Ausgleich</span></span>
       <span class="tz-e k-schule"><span class="tz-l">Schule / Elternzeit</span></span>
+      <span class="tz-e" style="background:#ecfccb;border-color:#5a8a1f;color:#3f6212"><span class="tz-l">Azubi</span></span>
     </div>
   </div>
   <section class="idle open" id="idle">
@@ -7966,7 +7983,7 @@ def _tz_build_xlsx(active: list, idle: list) -> bytes:
 
     order = sorted(
         (d for d in active if d["group"] != "Spedition"),  # Speditionen nicht im Export
-        key=lambda d: ({"Fest": 0, "Springer": 1}.get(d["group"], 2), d["name"].casefold()),
+        key=lambda d: ({"Fest": 0, "Springer": 1}.get(d["group"], 2), d["azubi"], d["name"].casefold()),
     )
     row = 2
     band = False
@@ -7978,7 +7995,7 @@ def _tz_build_xlsx(active: list, idle: list) -> bytes:
             ws.cell(row=row, column=1, value=d["name"])
             kf_val = int(d["kf"]) if d["kf"].isdigit() else d["kf"]
             ws.cell(row=row, column=2, value=kf_val)
-            ws.cell(row=row, column=3, value=status_label.get(d["group"], d["group"]))
+            ws.cell(row=row, column=3, value=status_label.get(d["group"], d["group"]) + (" · Azubi" if d["azubi"] else ""))
             ws.cell(row=row, column=4, value=f"Woche {wi}")
             max_lines = 1
             for di, entries in enumerate(wk):
@@ -8015,7 +8032,9 @@ def _tz_build_xlsx(active: list, idle: list) -> bytes:
                 c.border, c.fill = border, base_fill
                 c.alignment = left if ci == 1 else center
                 if ci == 1:
-                    c.font = Font(bold=True)
+                    c.font = Font(bold=True, color="3F6212" if d["azubi"] else "000000")
+                if d["azubi"] and ci in (1, 3):
+                    c.fill = PatternFill("solid", fgColor="ECFCCB")
             ws.row_dimensions[row].height = 18 * max_lines
             row += 1
     widths = [26, 9, 11, 10] + [17] * 7 + [9, 13, 7, 10]
@@ -8054,16 +8073,21 @@ def _tz_build_xlsx(active: list, idle: list) -> bytes:
 
     # ── Blatt 3: Ohne Einsatz ────────────────────────────────────────────────
     wo = wb.create_sheet("Ohne Einsatz")
-    wo.append(["Fahrer", "KF-Nr."])
-    for c in (1, 2):
+    wo.append(["Fahrer", "KF-Nr.", "Azubi"])
+    for c in (1, 2, 3):
         cell = wo.cell(row=1, column=c)
         cell.fill, cell.font, cell.alignment = head_fill, head_font, center
-    for d in idle:
-        if _tz_is_spedition(d["kf"]):
-            continue
-        wo.append([d["name"], int(d["kf"]) if d["kf"].isdigit() else d["kf"]])
+    az_fill = PatternFill("solid", fgColor="ECFCCB")
+    for d in sorted((x for x in idle if not _tz_is_spedition(x["kf"])),
+                    key=lambda x: (x["azubi"], x["name"].casefold())):
+        wo.append([d["name"], int(d["kf"]) if d["kf"].isdigit() else d["kf"], "Azubi" if d["azubi"] else ""])
+        if d["azubi"]:
+            for c in (1, 2, 3):
+                wo.cell(row=wo.max_row, column=c).fill = az_fill
+                wo.cell(row=wo.max_row, column=c).font = Font(color="3F6212", bold=(c == 1))
     wo.column_dimensions["A"].width = 30
     wo.column_dimensions["B"].width = 10
+    wo.column_dimensions["C"].width = 9
     wo.freeze_panes = "A2"
 
     buf = io.BytesIO()
@@ -8088,9 +8112,10 @@ def _tz_build_html(weeks: list, groups: dict) -> str:
             "kf": kf, "name": name,
             "group": _tz_group_for(kf, grid),
             "weeks_used": sum(1 for wk in grid if any(wk)),
+            "azubi": _tz_is_azubi(kf, groups.get(kf, ("", ""))[1]),
             "grid": grid,
         })
-    drivers.sort(key=lambda d: (d["name"].casefold(), d["kf"]))
+    drivers.sort(key=lambda d: (d["azubi"], d["name"].casefold(), d["kf"]))  # Azubis unten
 
     active, idle = [], []
     for d in drivers:
@@ -8125,15 +8150,17 @@ def _tz_build_html(weeks: list, groups: dict) -> str:
         if d["group"] != "Spedition":
             for k in ("tour", "sonder", "abw"):
                 tot[k] += cnt[k]
-        search = " ".join([d["name"].lower(), d["kf"], d["group"].lower()] + sorted(tours))
+        search = " ".join([d["name"].lower(), d["kf"], d["group"].lower()] + (["azubi"] if d["azubi"] else []) + sorted(tours))
         if d["group"] == "Springer":
             grp_badge = f'<span class="grp g-Springer">Springer · {d["weeks_used"]}/4 Wochen</span>'
         elif d["group"] == "Spedition":
             grp_badge = '<span class="grp g-Spedition">Spedition</span>'
         else:
             grp_badge = ""
+        if d["azubi"]:
+            grp_badge += '<span class="grp g-Azubi">Azubi</span>'
         cards.append(
-            f'<section class="card driver-card" data-group="{_tz_html.escape(d["group"])}" '
+            f'<section class="card driver-card{" azubi" if d["azubi"] else ""}" data-group="{_tz_html.escape(d["group"])}" '
             f'data-s="{_tz_html.escape(search)}">'
             f'<div class="card-h"><span class="nm">{_tz_html.escape(d["name"])}</span>'
             f'<span class="kf">{_tz_html.escape(d["kf"])}</span>{grp_badge}'
@@ -8157,10 +8184,22 @@ def _tz_build_html(weeks: list, groups: dict) -> str:
         f'<div class="metric"><b>{tot["sonder"]}</b>Sonder / z.b.v.</div>'
         f'<div class="metric"><b>{tot["abw"]}</b>Abwesenheiten</div>'
     )
+    idle_own = [d for d in idle if not _tz_is_spedition(d["kf"])]
+    idle_other = [d for d in idle_own if not d["azubi"]]
+    idle_azubi = [d for d in idle_own if d["azubi"]]
     idle_html = "".join(
         f'<div class="idle-it">{_tz_html.escape(d["name"])}<span>{_tz_html.escape(d["kf"])}</span></div>'
-        for d in idle if not _tz_is_spedition(d["kf"])
-    ) or '<div class="idle-it">Keine</div>'
+        for d in idle_other
+    )
+    if idle_azubi:
+        idle_html += (
+            f'<div class="idle-sep">Azubis ({len(idle_azubi)})</div>'
+            + "".join(
+                f'<div class="idle-it az">{_tz_html.escape(d["name"])}<span>{_tz_html.escape(d["kf"])}</span></div>'
+                for d in idle_azubi
+            )
+        )
+    idle_html = idle_html or '<div class="idle-it">Keine</div>'
     idle_n = sum(1 for d in idle if not _tz_is_spedition(d["kf"]))
 
     return (_TZ_TEMPLATE
