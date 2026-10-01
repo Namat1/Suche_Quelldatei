@@ -7863,6 +7863,16 @@ td{padding:4px}
 .idle-it{display:flex;justify-content:space-between;gap:6px;border:1px solid #e3e8ef;border-radius:8px;padding:6px 8px;font-size:12px;font-weight:700}
 .idle-it span{color:var(--muted);font-weight:600;font-size:11px}
 .idle-it.az{background:#ecfccb;border-color:#a3c95a;color:#3f6212}
+.tz-e.hit{background:#fef08a!important;border-color:#ca8a04!important;color:#713f12!important;box-shadow:0 0 0 2px #facc15,0 0 0 5px rgba(250,204,21,.35);position:relative;z-index:1}
+.card.dimrest .tz-e:not(.hit),.card.dimrest .tz-free{opacity:.32}
+.card.namehit{box-shadow:0 0 0 3px #facc15,0 6px 18px rgba(202,138,4,.25)}
+.card-h mark{background:#fde047;color:#1c1917;border-radius:3px;padding:0 2px}
+.idle-it mark{background:#fde047}
+.idle-it.hit{background:#fef08a!important;border-color:#ca8a04!important;color:#713f12!important;box-shadow:0 0 0 2px #facc15}
+.idle-it.dim{opacity:.35}
+.hitcount{font-size:11.5px;font-weight:800;color:#854d0e;background:#fef9c3;border:1px solid #fde047;border-radius:999px;padding:5px 10px;white-space:nowrap}
+@keyframes tzflash{0%{transform:scale(1)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
+.flash{animation:tzflash .6s ease}
 .idle-it.az span{color:#4d7c0f}
 .idle-sep{grid-column:1/-1;margin-top:6px;padding-top:8px;border-top:1px dashed #cbd5e1;font-size:11px;font-weight:800;color:#4d7c0f;text-transform:uppercase;letter-spacing:.05em}
 .card-h .grp.g-Azubi{background:#ecfccb;color:#3f6212}
@@ -7885,7 +7895,8 @@ td{padding:4px}
   </div>
   <div class="bar">
     <div class="tools">
-      <input id="q" type="search" placeholder="Fahrer, KF-Nr. oder Tour suchen …">
+      <input id="q" type="search" placeholder="Fahrer, KF-Nr., Tour oder Einsatz suchen … (Enter = nächster Treffer)">
+      <span id="hitcount" class="hitcount hidden"></span>
       <div class="chips" id="chips">%%CHIPS%%</div>
       <label class="tgl"><input type="checkbox" id="sped"> Speditionen</label>
       <button class="btn btn-xl" onclick="tzExcel()">&#128190; Excel Download</button>
@@ -7920,17 +7931,57 @@ function tzExcel(){
 }
 (function(){
   var cards=[].slice.call(document.querySelectorAll('.card'));
+  var idles=[].slice.call(document.querySelectorAll('.idle-it'));
   var q=document.getElementById('q'),sped=document.getElementById('sped'),none=document.getElementById('none');
-  var group='';
+  var cnt=document.getElementById('hitcount'),idle=document.getElementById('idle');
+  var group='',hits=[],hitPos=-1;
+  function esc(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function mark(el,s){
+    if(!el.hasAttribute('data-o'))el.setAttribute('data-o',el.textContent);
+    var o=el.getAttribute('data-o'),i=s?o.toLowerCase().indexOf(s):-1;
+    el.innerHTML=i<0?esc(o):esc(o.slice(0,i))+'<mark>'+esc(o.slice(i,i+s.length))+'</mark>'+esc(o.slice(i+s.length));
+    return i>=0;
+  }
   function apply(){
-    var s=q.value.trim().toLowerCase(),n=0;
+    var s=q.value.trim().toLowerCase(),n=0,nh=0;
+    hits=[];hitPos=-1;
     cards.forEach(function(c){
       var g=c.getAttribute('data-group');
       var ok=(!s||c.getAttribute('data-s').indexOf(s)>=0)
         &&(group?g===group:(g!=='Spedition'||sped.checked));
-      c.classList.toggle('hidden',!ok); if(ok)n++;
+      c.classList.toggle('hidden',!ok);
+      var cellHit=false;
+      [].forEach.call(c.querySelectorAll('.tz-e'),function(e){
+        var h=!!(ok&&s&&(e.getAttribute('title')||'').toLowerCase().indexOf(s)>=0);
+        e.classList.toggle('hit',h);
+        if(h){cellHit=true;nh++;hits.push(e);}
+      });
+      var nameHit=mark(c.querySelector('.nm'),ok?s:'');
+      var kf=c.querySelector('.kf');if(kf)mark(kf,ok?s:'');
+      c.classList.toggle('dimrest',cellHit);
+      c.classList.toggle('namehit',ok&&!!s&&nameHit);
+      if(ok&&s&&nameHit&&!cellHit)hits.push(c);
+      if(ok)n++;
     });
-    none.classList.toggle('hidden',n>0);
+    var ni=0;
+    idles.forEach(function(it){
+      var t=it.textContent.toLowerCase(),h=!!s&&t.indexOf(s)>=0;
+      it.classList.toggle('hit',h);it.classList.toggle('dim',!!s&&!h);
+      if(h){ni++;hits.unshift(it);}
+    });
+    if(idle){if(ni)idle.classList.add('open');idle.classList.toggle('hidden',!!s&&!ni);}
+    none.classList.toggle('hidden',n>0||ni>0);
+    if(s){
+      cnt.textContent=(nh?nh+' Einsatz-Treffer · ':'')+n+' Fahrer'+(ni?' · '+ni+' ohne Einsatz':'');
+      cnt.classList.remove('hidden');
+    }else cnt.classList.add('hidden');
+  }
+  function next(){
+    if(!hits.length)return;
+    hitPos=(hitPos+1)%hits.length;
+    var el=hits[hitPos];
+    el.scrollIntoView({behavior:'smooth',block:'center'});
+    el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');
   }
   document.getElementById('chips').addEventListener('click',function(e){
     var b=e.target.closest('.chip'); if(!b)return;
@@ -7938,7 +7989,9 @@ function tzExcel(){
     [].forEach.call(this.querySelectorAll('.chip'),function(x){x.classList.toggle('on',x===b);});
     apply();
   });
-  q.addEventListener('input',apply); sped.addEventListener('change',apply); apply();
+  q.addEventListener('input',apply);
+  q.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();next();}});
+  sped.addEventListener('change',apply); apply();
 })();
 </script>
 </body>
