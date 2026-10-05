@@ -68,10 +68,10 @@ _boot_log("03 Standardimporte bereit; pandas wird verzögert geladen")
 st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
-APP_CACHE_VERSION = "hupa-dashboard-2026-09-20-v57-saturday-timerec-refresh"
+APP_CACHE_VERSION = "hupa-dashboard-2026-10-05-v58-curve-date-fix"
 EXTRA_CACHE_VERSION = "extra-parser-2026-09-20-saturday-refresh-v2"
 TIMEREC_PARSER_VERSION = "timerec-parser-2026-09-20-v3-netto-saturday-contenthash"
-APP_DISPLAY_VERSION = "53"
+APP_DISPLAY_VERSION = "54"
 APP_DISPLAY_NAME = "NFC Generator"
 
 
@@ -7203,6 +7203,15 @@ function hupaCurveDayMonthChanged(value){
   hupaRenderCurveCompare();
 }
 
+function hupaCurveIsoDate(r){
+  var iso=String((r&&r.date_iso)||"").trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  var raw=String((r&&r.datum)||"").trim();
+  var m=raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if(m) return m[3]+"-"+String(m[2]).padStart(2,"0")+"-"+String(m[1]).padStart(2,"0");
+  return "";
+}
+
 function hupaIsoWeek(iso){
   var dt=hupaParseLocalDate(iso); if(!dt) return 0;
   var d=new Date(Date.UTC(dt.getFullYear(),dt.getMonth(),dt.getDate()));
@@ -7228,7 +7237,7 @@ function hupaCurveSeriesForYear(year,dest,grain,dayMonth){
   }
   if(grain==="week"){
     rows.forEach(function(r){
-      var k=hupaIsoWeek(r.datum); if(!k) return;
+      var iso=hupaCurveIsoDate(r); var k=hupaIsoWeek(iso); if(!k) return;
       map[k]=(map[k]||0)+hupaCurveRowValue(r,dest);
     });
     var keys=Array.from({length:53},function(_,i){return i+1;});
@@ -7239,7 +7248,7 @@ function hupaCurveSeriesForYear(year,dest,grain,dayMonth){
   var month=Math.max(1,Math.min(12,+dayMonth||1));
   rows.forEach(function(r){
     if((+r.monat||0)!==month) return;
-    var p=String(r.datum||"").split("-"); var k=p.length===3?(+p[2]||0):0; if(!k) return;
+    var iso=hupaCurveIsoDate(r); var p=iso.split("-"); var k=p.length===3?(+p[2]||0):0; if(!k) return;
     map[k]=(map[k]||0)+hupaCurveRowValue(r,dest);
   });
   var days=new Date(+year,month,0).getDate();
