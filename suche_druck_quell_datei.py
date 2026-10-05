@@ -7052,6 +7052,11 @@ var HUPA_YEAR_COLORS = ["#6d28d9","#d97706","#15803d","#be123c","#4338ca","#c241
 
 function hupaEsc(v){return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 function hupaNum(v){return (Number(v)||0).toLocaleString("de-DE",{maximumFractionDigits:0});}
+function hupaNumExact(v){
+  var n=Number(v);
+  if(!isFinite(n)) return "0";
+  return n.toLocaleString("de-DE",{minimumFractionDigits:0,maximumFractionDigits:6,useGrouping:true});
+}
 function hupaPct(v){return (Number(v)||0).toLocaleString("de-DE",{minimumFractionDigits:1,maximumFractionDigits:1})+" %";}
 function hupaYears(){return Array.from(new Set((HUPA_DATA||[]).map(function(r){return +r.jahr||0;}).filter(Boolean))).sort(function(a,b){return b-a;});}
 function hupaSelectedYear(){return +(document.getElementById("hupa-year")||{value:0}).value||0;}
@@ -7183,12 +7188,12 @@ function hupaCompareTable(years, aggs, dest){
     html+='<tr><td><b>'+HUPA_MONTH_NAMES[m-1]+'</b></td>';
     years.forEach(function(y){
       var v=hupaValueForMonth(aggs[y],m,dest);
-      html+='<td class="hp-num">'+(v==null?'–':hupaNum(v))+'</td>';
+      html+='<td class="hp-num">'+(v==null?'–':hupaNumExact(v))+'</td>';
     });
     html+='</tr>';
   }
   html+='<tr class="hp-total"><td>Gesamt</td>';
-  years.forEach(function(y){html+='<td class="hp-num">'+hupaNum(hupaTotalForDest(aggs[y],dest))+'</td>';});
+  years.forEach(function(y){html+='<td class="hp-num">'+hupaNumExact(hupaTotalForDest(aggs[y],dest))+'</td>';});
   html+='</tr></tbody></table>';
   return html;
 }
@@ -7242,7 +7247,7 @@ function hupaRenderCurveCompare(){
     stat.innerHTML=years.map(function(y,i){
       var allYears=hupaYears();
       var c=HUPA_YEAR_COLORS[Math.max(0,allYears.indexOf(y))%HUPA_YEAR_COLORS.length]||HUPA_YEAR_COLORS[i%HUPA_YEAR_COLORS.length];
-      return '<span class="hp-stat-chip"><span class="hp-stat-dot" style="background:'+c+'"></span><b>'+y+'</b>&nbsp;'+hupaNum(hupaTotalForDest(aggs[y],dest))+' TKT</span>';
+      return '<span class="hp-stat-chip"><span class="hp-stat-dot" style="background:'+c+'"></span><b>'+y+'</b>&nbsp;'+hupaNumExact(hupaTotalForDest(aggs[y],dest))+' TKT</span>';
     }).join('');
   }
 
@@ -7251,6 +7256,33 @@ function hupaRenderCurveCompare(){
   if(HUPA_MONTH_CHART){HUPA_MONTH_CHART.destroy();HUPA_MONTH_CHART=null;}
   if(!years.length) return;
   var allYears=hupaYears();
+  var hupaValueLabelPlugin={
+    id:"hupaValueLabels",
+    afterDatasetsDraw:function(chart){
+      var ctx=chart.ctx;
+      ctx.save();
+      ctx.font="700 11px Segoe UI, Arial, sans-serif";
+      ctx.textAlign="center";
+      ctx.textBaseline="bottom";
+      chart.data.datasets.forEach(function(ds,di){
+        var meta=chart.getDatasetMeta(di);
+        if(meta.hidden) return;
+        meta.data.forEach(function(point,idx){
+          var raw=ds.data[idx];
+          if(raw==null || !isFinite(Number(raw))) return;
+          var label=hupaNumExact(raw);
+          var y=point.y-9-(di%2)*15;
+          var pad=3;
+          var w=ctx.measureText(label).width;
+          ctx.fillStyle="rgba(255,255,255,.92)";
+          ctx.fillRect(point.x-w/2-pad,y-12,w+pad*2,14);
+          ctx.fillStyle=ds.borderColor||"#172033";
+          ctx.fillText(label,point.x,y);
+        });
+      });
+      ctx.restore();
+    }
+  };
   HUPA_MONTH_CHART=new Chart(canvas.getContext("2d"),{
     type:"line",
     data:{
@@ -7271,14 +7303,15 @@ function hupaRenderCurveCompare(){
           pointRadius:radii,pointHoverRadius:hoverRadii,pointStyle:pointStyles,
           pointBackgroundColor:pointBg,pointBorderColor:pointBorder,pointBorderWidth:pointBorderWidths,
           segment:{borderDash:function(ctx){return isCurrentYear && ctx.p1DataIndex===hupaCurrentMonth-1 ? [7,5] : undefined;}},
-          spanGaps:false,tension:.25
+          spanGaps:false,tension:0
         };
       })
     },
+    plugins:[hupaValueLabelPlugin],
     options:{
       responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
-      plugins:{legend:{display:compareMode,position:"bottom",labels:{usePointStyle:true,boxWidth:9,font:{weight:"800"}}},tooltip:{callbacks:{label:function(c){var running=(+c.dataset.label===hupaCurrentYear && c.dataIndex===hupaCurrentMonth-1);return c.dataset.label+": "+(c.raw==null?"–":hupaNum(c.raw)+" TKT")+(running?" · laufender Monat, noch nicht vollständig":"");}}}},
-      scales:{y:{beginAtZero:true,title:{display:true,text:"TKT"},ticks:{callback:function(v){return hupaNum(v);}},grid:{color:"rgba(100,116,139,.12)"}},x:{grid:{display:false}}}
+      plugins:{legend:{display:compareMode,position:"bottom",labels:{usePointStyle:true,boxWidth:9,font:{weight:"800"}}},tooltip:{callbacks:{label:function(c){var running=(+c.dataset.label===hupaCurrentYear && c.dataIndex===hupaCurrentMonth-1);return c.dataset.label+": "+(c.raw==null?"–":hupaNumExact(c.raw)+" TKT")+(running?" · laufender Monat, noch nicht vollständig":"");}}}},
+      scales:{y:{beginAtZero:true,title:{display:true,text:"TKT"},ticks:{precision:0,callback:function(v){return hupaNumExact(v);}},grid:{color:"rgba(100,116,139,.12)"}},x:{grid:{display:false}}}
     }
   });
 }
