@@ -6922,6 +6922,18 @@ def _hupa_panels_html() -> str:
             <option value="compare">Jahresvergleich</option>
           </select>
         </div>
+        <div class="hp-control-group">
+          <span class="hp-control-label">Auflösung</span>
+          <select id="hupa-curve-grain" class="hp-select" onchange="hupaCurveGrainChanged(this.value)" title="Zeitliche Auflösung">
+            <option value="month">Monat</option>
+            <option value="week">Woche / KW</option>
+            <option value="day">Tag</option>
+          </select>
+        </div>
+        <div id="hupa-curve-day-month-group" class="hp-control-group" style="display:none">
+          <span class="hp-control-label">Monat für Tageskurve</span>
+          <select id="hupa-curve-day-month" class="hp-select" onchange="hupaCurveDayMonthChanged(this.value)" title="Monat für Tageskurve"></select>
+        </div>
         <div id="hupa-compare-year-group" class="hp-control-group hp-compare-only">
           <span class="hp-control-label">Vergleichsjahre</span>
           <div id="hupa-year-pills" class="hp-year-pills"></div>
@@ -7042,6 +7054,8 @@ var HUPA_DESTS = ["NMS","Malchow","S&L / Zarrentin"];
 var HUPA_COMPARE_YEARS = [];
 var HUPA_CURVE_MODE = "single";
 var HUPA_CURVE_DEST = "Gesamt";
+var HUPA_CURVE_GRAIN = "month";
+var HUPA_CURVE_DAY_MONTH = 0;
 var HUPA_DAYS_DEST = "Gesamt";
 var HUPA_DAYS_WEEKDAY = 0;
 var HUPA_DAYS_VIEW = "list";
@@ -7179,6 +7193,81 @@ function hupaCurveDestinationChanged(value){
   hupaRenderCurveCompare();
 }
 
+function hupaCurveGrainChanged(value){
+  HUPA_CURVE_GRAIN=(value==="day"||value==="week")?value:"month";
+  hupaRenderCurveCompare();
+}
+
+function hupaCurveDayMonthChanged(value){
+  HUPA_CURVE_DAY_MONTH=Math.max(1,Math.min(12,+value||1));
+  hupaRenderCurveCompare();
+}
+
+function hupaIsoWeek(iso){
+  var dt=hupaParseLocalDate(iso); if(!dt) return 0;
+  var d=new Date(Date.UTC(dt.getFullYear(),dt.getMonth(),dt.getDate()));
+  var day=d.getUTCDay()||7;
+  d.setUTCDate(d.getUTCDate()+4-day);
+  var y0=new Date(Date.UTC(d.getUTCFullYear(),0,1));
+  return Math.ceil((((d-y0)/86400000)+1)/7);
+}
+
+function hupaCurveRowValue(r,dest){
+  if(dest==="Gesamt") return Number(r.tkt)||0;
+  return String(r.ziel||"")===dest?(Number(r.tkt)||0):0;
+}
+
+function hupaCurveSeriesForYear(year,dest,grain,dayMonth){
+  var rows=hupaRowsForYear(year), map={};
+  if(grain==="month"){
+    rows.forEach(function(r){
+      var k=+r.monat||0; if(k<1||k>12) return;
+      map[k]=(map[k]||0)+hupaCurveRowValue(r,dest);
+    });
+    return {labels:HUPA_MONTH_NAMES.slice(),values:HUPA_MONTH_NAMES.map(function(_,i){return Object.prototype.hasOwnProperty.call(map,i+1)?map[i+1]:null;}),keys:Array.from({length:12},function(_,i){return i+1;})};
+  }
+  if(grain==="week"){
+    rows.forEach(function(r){
+      var k=hupaIsoWeek(r.datum); if(!k) return;
+      map[k]=(map[k]||0)+hupaCurveRowValue(r,dest);
+    });
+    var keys=Array.from({length:53},function(_,i){return i+1;});
+    while(keys.length && !Object.prototype.hasOwnProperty.call(map,keys[keys.length-1])) keys.pop();
+    if(!keys.length) keys=Array.from({length:52},function(_,i){return i+1;});
+    return {labels:keys.map(function(k){return "KW "+k;}),values:keys.map(function(k){return Object.prototype.hasOwnProperty.call(map,k)?map[k]:null;}),keys:keys};
+  }
+  var month=Math.max(1,Math.min(12,+dayMonth||1));
+  rows.forEach(function(r){
+    if((+r.monat||0)!==month) return;
+    var p=String(r.datum||"").split("-"); var k=p.length===3?(+p[2]||0):0; if(!k) return;
+    map[k]=(map[k]||0)+hupaCurveRowValue(r,dest);
+  });
+  var days=new Date(+year,month,0).getDate();
+  var keys=Array.from({length:days},function(_,i){return i+1;});
+  return {labels:keys.map(function(k){return String(k).padStart(2,"0")+"."+String(month).padStart(2,"0")+".";}),values:keys.map(function(k){return Object.prototype.hasOwnProperty.call(map,k)?map[k]:null;}),keys:keys};
+}
+
+function hupaCurvePeriodLabel(grain){return grain==="week"?"Kalenderwoche":(grain==="day"?"Tag":"Monat");}
+function hupaCurveTitleWord(grain){return grain==="week"?"Wochenkurve":(grain==="day"?"Tageskurve":"Monatskurve");}
+
+function hupaCurveTable(years,dest,grain,dayMonth){
+  if(!years.length) return '<div class="hp-empty">Keine Vergleichsjahre ausgewählt.</div>';
+  var series={}; years.forEach(function(y){series[y]=hupaCurveSeriesForYear(y,dest,grain,dayMonth);});
+  var base=series[years[0]]||{labels:[],keys:[]};
+  var html='<table class="hp-table"><thead><tr><th>'+hupaCurvePeriodLabel(grain)+'</th>';
+  years.forEach(function(y){html+='<th class="hp-num">'+y+'</th>';});
+  html+='</tr></thead><tbody>';
+  base.labels.forEach(function(label,idx){
+    html+='<tr><td><b>'+label+'</b></td>';
+    years.forEach(function(y){var v=(series[y]&&idx<series[y].values.length)?series[y].values[idx]:null;html+='<td class="hp-num">'+(v==null?'–':hupaNumExact(v))+'</td>';});
+    html+='</tr>';
+  });
+  html+='<tr class="hp-total"><td>Gesamt</td>';
+  years.forEach(function(y){var total=(series[y].values||[]).reduce(function(a,v){return a+(v==null?0:Number(v)||0);},0);html+='<td class="hp-num">'+hupaNumExact(total)+'</td>';});
+  html+='</tr></tbody></table>';
+  return html;
+}
+
 function hupaCompareTable(years, aggs, dest){
   if(!years.length) return '<div class="hp-empty">Keine Vergleichsjahre ausgewählt.</div>';
   var html='<table class="hp-table"><thead><tr><th>Monat</th>';
@@ -7200,54 +7289,62 @@ function hupaCompareTable(years, aggs, dest){
 
 function hupaRenderCurveCompare(){
   var compareMode=HUPA_CURVE_MODE==="compare";
+  var grain=HUPA_CURVE_GRAIN||"month";
   var modeSel=document.getElementById("hupa-curve-mode"); if(modeSel) modeSel.value=compareMode?"compare":"single";
+  var grainSel=document.getElementById("hupa-curve-grain"); if(grainSel) grainSel.value=grain;
   var yearGroup=document.getElementById("hupa-compare-year-group"); if(yearGroup) yearGroup.style.display=compareMode?"flex":"none";
 
-  if(compareMode){
-    hupaEnsureCompareYears();
-    hupaRenderYearPills();
-  }
+  if(compareMode){hupaEnsureCompareYears();hupaRenderYearPills();}
 
-  var destSel=document.getElementById("hupa-curve-dest");
-  if(destSel){destSel.value=HUPA_CURVE_DEST;}
+  var destSel=document.getElementById("hupa-curve-dest"); if(destSel) destSel.value=HUPA_CURVE_DEST;
   var dest=HUPA_CURVE_DEST||"Gesamt";
   var selectedYear=hupaSelectedYear();
   var years=compareMode?HUPA_COMPARE_YEARS.slice():(selectedYear?[selectedYear]:[]);
-  var aggs={}; years.forEach(function(y){aggs[y]=hupaAggregate(hupaRowsForYear(y));});
-  var hupaNow=new Date();
-  var hupaCurrentYear=hupaNow.getFullYear();
-  var hupaCurrentMonth=hupaNow.getMonth()+1;
+  var hupaNow=new Date(), hupaCurrentYear=hupaNow.getFullYear(), hupaCurrentMonth=hupaNow.getMonth()+1;
+  if(!HUPA_CURVE_DAY_MONTH) HUPA_CURVE_DAY_MONTH=(selectedYear===hupaCurrentYear?hupaCurrentMonth:1);
+
+  var monthGroup=document.getElementById("hupa-curve-day-month-group");
+  var monthSel=document.getElementById("hupa-curve-day-month");
+  if(monthGroup) monthGroup.style.display=grain==="day"?"flex":"none";
+  if(monthSel){
+    var monthHtml=HUPA_MONTH_NAMES.map(function(n,i){return '<option value="'+(i+1)+'">'+n+'</option>';}).join('');
+    if(monthSel.innerHTML!==monthHtml) monthSel.innerHTML=monthHtml;
+    monthSel.value=String(HUPA_CURVE_DAY_MONTH);
+  }
+
+  var series={}; years.forEach(function(y){series[y]=hupaCurveSeriesForYear(y,dest,grain,HUPA_CURVE_DAY_MONTH);});
+  var base=years.reduce(function(best,y){var cur=series[y];return !best || ((cur.labels||[]).length>(best.labels||[]).length)?cur:best;},null)||{labels:[],values:[],keys:[]};
   var hupaShowsCurrentYear=years.indexOf(hupaCurrentYear)>=0;
 
-  var ct=document.getElementById("hupa-curve-table"); if(ct) ct.innerHTML=hupaCompareTable(years,aggs,dest);
+  var ct=document.getElementById("hupa-curve-table"); if(ct) ct.innerHTML=hupaCurveTable(years,dest,grain,HUPA_CURVE_DAY_MONTH);
   var tableTitle=document.getElementById("hupa-curve-table-title");
-  if(tableTitle) tableTitle.textContent=compareMode?"Werte zum Jahresvergleich":"Werte zur Monatskurve";
+  if(tableTitle) tableTitle.textContent="Exakte Werte · "+hupaCurveTitleWord(grain)+(grain==="day"?" · "+HUPA_MONTH_NAMES[HUPA_CURVE_DAY_MONTH-1]:"");
 
   var title=document.getElementById("hupa-chart-title");
-  if(title) title.textContent=compareMode
-    ? (dest==="Gesamt"?"Gesamt-TKT":dest)+" – Monatskurven im Jahresvergleich"
-    : (dest==="Gesamt"?"Gesamt-TKT":dest)+" – Monatskurve "+(selectedYear||"");
+  var titleBase=(dest==="Gesamt"?"Gesamt-TKT":dest)+" – "+hupaCurveTitleWord(grain);
+  if(grain==="day") titleBase+=" "+HUPA_MONTH_NAMES[HUPA_CURVE_DAY_MONTH-1];
+  if(title) title.textContent=compareMode?titleBase+" im Jahresvergleich":titleBase+" "+(selectedYear||"");
 
   var sub=document.getElementById("hupa-chart-sub");
   if(sub){
     var subText=compareMode
-      ? (years.length>1?(years.join(" vs. ")+" · Kurven übereinander"):(years.length?String(years[0])+" · weiteres Jahr oben auswählen":"Keine Vergleichsjahre"))
-      : (selectedYear?String(selectedYear)+" · Jahresvergleich über die Auswahl oben zuschaltbar":"Kein Jahr ausgewählt");
-    if(hupaShowsCurrentYear) subText+=" · ⚠ "+HUPA_MONTH_NAMES[hupaCurrentMonth-1]+" "+hupaCurrentYear+" läuft noch – Wert unvollständig";
+      ? (years.length>1?(years.join(" vs. ")+" · exakte "+hupaCurvePeriodLabel(grain)+"swerte"):(years.length?String(years[0])+" · weiteres Jahr oben auswählen":"Keine Vergleichsjahre"))
+      : (selectedYear?String(selectedYear)+" · exakte "+hupaCurvePeriodLabel(grain)+"swerte":"Kein Jahr ausgewählt");
+    if(grain==="month" && hupaShowsCurrentYear) subText+=" · ⚠ "+HUPA_MONTH_NAMES[hupaCurrentMonth-1]+" "+hupaCurrentYear+" läuft noch";
+    if(grain==="day" && hupaShowsCurrentYear && HUPA_CURVE_DAY_MONTH===hupaCurrentMonth) subText+=" · ⚠ aktueller Monat ist noch unvollständig";
     sub.textContent=subText;
   }
 
   var badge=document.getElementById("hupa-compare-label");
-  if(badge) badge.textContent=compareMode
-    ? dest+" · "+years.length+" Jahr"+(years.length===1?"":"e")
-    : (selectedYear?dest+" · "+selectedYear:"Ein Jahr");
+  if(badge) badge.textContent=(compareMode?(dest+" · "+years.length+" Jahr"+(years.length===1?"":"e")):(selectedYear?dest+" · "+selectedYear:"Ein Jahr"))+" · "+(grain==="month"?"Monat":grain==="week"?"KW":"Tag");
 
   var stat=document.getElementById("hupa-compare-stats");
   if(stat){
     stat.innerHTML=years.map(function(y,i){
-      var allYears=hupaYears();
-      var c=HUPA_YEAR_COLORS[Math.max(0,allYears.indexOf(y))%HUPA_YEAR_COLORS.length]||HUPA_YEAR_COLORS[i%HUPA_YEAR_COLORS.length];
-      return '<span class="hp-stat-chip"><span class="hp-stat-dot" style="background:'+c+'"></span><b>'+y+'</b>&nbsp;'+hupaNumExact(hupaTotalForDest(aggs[y],dest))+' TKT</span>';
+      var allYears=hupaYears(); var c=HUPA_YEAR_COLORS[Math.max(0,allYears.indexOf(y))%HUPA_YEAR_COLORS.length]||HUPA_YEAR_COLORS[i%HUPA_YEAR_COLORS.length];
+      var total=(series[y].values||[]).reduce(function(a,v){return a+(v==null?0:Number(v)||0);},0);
+      var suffix=grain==="day"?(" · "+HUPA_MONTH_NAMES[HUPA_CURVE_DAY_MONTH-1]):(grain==="week"?" · Jahr":" · Jahr");
+      return '<span class="hp-stat-chip"><span class="hp-stat-dot" style="background:'+c+'"></span><b>'+y+'</b>&nbsp;'+hupaNumExact(total)+' TKT'+suffix+'</span>';
     }).join('');
   }
 
@@ -7259,59 +7356,31 @@ function hupaRenderCurveCompare(){
   var hupaValueLabelPlugin={
     id:"hupaValueLabels",
     afterDatasetsDraw:function(chart){
-      var ctx=chart.ctx;
-      ctx.save();
-      ctx.font="700 11px Segoe UI, Arial, sans-serif";
-      ctx.textAlign="center";
-      ctx.textBaseline="bottom";
+      var showAll=(grain==="month") || (grain==="day" && chart.data.labels.length<=31);
+      if(!showAll) return;
+      var ctx=chart.ctx; ctx.save(); ctx.font=grain==="day"?"700 9px Segoe UI, Arial, sans-serif":"700 11px Segoe UI, Arial, sans-serif"; ctx.textAlign="center"; ctx.textBaseline="bottom";
       chart.data.datasets.forEach(function(ds,di){
-        var meta=chart.getDatasetMeta(di);
-        if(meta.hidden) return;
+        var meta=chart.getDatasetMeta(di); if(meta.hidden) return;
         meta.data.forEach(function(point,idx){
-          var raw=ds.data[idx];
-          if(raw==null || !isFinite(Number(raw))) return;
-          var label=hupaNumExact(raw);
-          var y=point.y-9-(di%2)*15;
-          var pad=3;
-          var w=ctx.measureText(label).width;
-          ctx.fillStyle="rgba(255,255,255,.92)";
-          ctx.fillRect(point.x-w/2-pad,y-12,w+pad*2,14);
-          ctx.fillStyle=ds.borderColor||"#172033";
-          ctx.fillText(label,point.x,y);
+          var raw=ds.data[idx]; if(raw==null || !isFinite(Number(raw))) return;
+          var label=hupaNumExact(raw), y=point.y-7-(di%2)*(grain==="day"?11:15), pad=2, w=ctx.measureText(label).width;
+          ctx.fillStyle="rgba(255,255,255,.90)"; ctx.fillRect(point.x-w/2-pad,y-(grain==="day"?10:12),w+pad*2,grain==="day"?11:14);
+          ctx.fillStyle=ds.borderColor||"#172033"; ctx.fillText(label,point.x,y);
         });
-      });
-      ctx.restore();
+      }); ctx.restore();
     }
   };
   HUPA_MONTH_CHART=new Chart(canvas.getContext("2d"),{
     type:"line",
-    data:{
-      labels:HUPA_MONTH_NAMES.slice(),
-      datasets:years.map(function(y,i){
-        var c=HUPA_YEAR_COLORS[Math.max(0,allYears.indexOf(y))%HUPA_YEAR_COLORS.length]||HUPA_YEAR_COLORS[i%HUPA_YEAR_COLORS.length];
-        var isCurrentYear=(+y===hupaCurrentYear);
-        var radii=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? 8 : 4;});
-        var hoverRadii=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? 10 : 6;});
-        var pointStyles=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? "triangle" : "circle";});
-        var pointBg=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? "#fff7ed" : c;});
-        var pointBorder=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? "#f97316" : c;});
-        var pointBorderWidths=HUPA_MONTH_NAMES.map(function(_,idx){return isCurrentYear && idx===hupaCurrentMonth-1 ? 3 : 1.5;});
-        return {
-          label:String(y),
-          data:HUPA_MONTH_NAMES.map(function(_,idx){return hupaValueForMonth(aggs[y],idx+1,dest);}),
-          borderColor:c,backgroundColor:c,borderWidth:i===0?3:2.4,
-          pointRadius:radii,pointHoverRadius:hoverRadii,pointStyle:pointStyles,
-          pointBackgroundColor:pointBg,pointBorderColor:pointBorder,pointBorderWidth:pointBorderWidths,
-          segment:{borderDash:function(ctx){return isCurrentYear && ctx.p1DataIndex===hupaCurrentMonth-1 ? [7,5] : undefined;}},
-          spanGaps:false,tension:0
-        };
-      })
-    },
+    data:{labels:base.labels.slice(),datasets:years.map(function(y,i){
+      var c=HUPA_YEAR_COLORS[Math.max(0,allYears.indexOf(y))%HUPA_YEAR_COLORS.length]||HUPA_YEAR_COLORS[i%HUPA_YEAR_COLORS.length];
+      return {label:String(y),data:(series[y].values||[]).slice(),borderColor:c,backgroundColor:c,borderWidth:i===0?3:2.4,pointRadius:grain==="day"?3:(grain==="week"?3.5:4),pointHoverRadius:grain==="day"?6:7,pointBackgroundColor:c,pointBorderColor:c,pointBorderWidth:1.5,spanGaps:false,tension:0};
+    })},
     plugins:[hupaValueLabelPlugin],
     options:{
       responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
-      plugins:{legend:{display:compareMode,position:"bottom",labels:{usePointStyle:true,boxWidth:9,font:{weight:"800"}}},tooltip:{callbacks:{label:function(c){var running=(+c.dataset.label===hupaCurrentYear && c.dataIndex===hupaCurrentMonth-1);return c.dataset.label+": "+(c.raw==null?"–":hupaNumExact(c.raw)+" TKT")+(running?" · laufender Monat, noch nicht vollständig":"");}}}},
-      scales:{y:{beginAtZero:true,title:{display:true,text:"TKT"},ticks:{precision:0,callback:function(v){return hupaNumExact(v);}},grid:{color:"rgba(100,116,139,.12)"}},x:{grid:{display:false}}}
+      plugins:{legend:{display:compareMode,position:"bottom",labels:{usePointStyle:true,boxWidth:9,font:{weight:"800"}}},tooltip:{callbacks:{title:function(items){return items&&items.length?items[0].label:"";},label:function(c){return c.dataset.label+": "+(c.raw==null?"–":hupaNumExact(c.raw)+" TKT");}}}},
+      scales:{y:{beginAtZero:true,title:{display:true,text:"TKT"},ticks:{callback:function(v){return hupaNumExact(v);}},grid:{color:"rgba(100,116,139,.12)"}},x:{grid:{display:false},ticks:{autoSkip:grain!=="month",maxTicksLimit:grain==="week"?18:(grain==="day"?16:12),maxRotation:0,minRotation:0}}}
     }
   });
 }
@@ -7564,10 +7633,12 @@ function hupaExportExcel(){
   if(HUPA_CURVE_MODE==="compare") hupaEnsureCompareYears();
   var years=HUPA_CURVE_MODE==="compare"?HUPA_COMPARE_YEARS.slice():(year?[year]:[]);
   var dest=HUPA_CURVE_DEST||"Gesamt";
-  var aggs={}; years.forEach(function(y){aggs[y]=hupaAggregate(hupaRowsForYear(y));});
-  var compare=[[(HUPA_CURVE_MODE==="compare"?"Jahresvergleich":"Monatskurve"),dest],["Monat"].concat(years.map(String))];
-  for(var m=1;m<=12;m++) compare.push([HUPA_MONTH_NAMES[m-1]].concat(years.map(function(y){var v=hupaValueForMonth(aggs[y],m,dest);return v==null?null:v;})));
-  compare.push(["Gesamt"].concat(years.map(function(y){return hupaTotalForDest(aggs[y],dest);}))); 
+  var grain=HUPA_CURVE_GRAIN||"month";
+  var series={}; years.forEach(function(y){series[y]=hupaCurveSeriesForYear(y,dest,grain,HUPA_CURVE_DAY_MONTH||1);});
+  var base=years.reduce(function(best,y){var cur=series[y];return !best || ((cur.labels||[]).length>(best.labels||[]).length)?cur:best;},null)||{labels:[]};
+  var compare=[[(HUPA_CURVE_MODE==="compare"?"Jahresvergleich":"Kurve"),dest,grain],[hupaCurvePeriodLabel(grain)].concat(years.map(String))];
+  base.labels.forEach(function(label,idx){compare.push([label].concat(years.map(function(y){var v=series[y]&&idx<series[y].values.length?series[y].values[idx]:null;return v==null?null:v;})));});
+  compare.push(["Gesamt"].concat(years.map(function(y){return (series[y].values||[]).reduce(function(a,v){return a+(v==null?0:Number(v)||0);},0);}))); 
 
   var raw=[["Datum","Jahr","Monat","Lager","TKT","Bewegung","Fahrer","Kennzeichen","Quelle","Blatt"]];
   (HUPA_DATA||[]).forEach(function(r){raw.push([r.datum||"",+r.jahr||"",+r.monat||"",r.ziel||"",Number(r.tkt)||0,r.bewegung||"",r.fahrer||"",r.kennzeichen||"",r.quelle||"",r.blatt||""]);});
