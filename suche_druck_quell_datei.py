@@ -68,7 +68,7 @@ _boot_log("03 Standardimporte bereit; pandas wird verzögert geladen")
 st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
-APP_CACHE_VERSION = "hupa-dashboard-2026-10-05-v58-curve-date-fix"
+APP_CACHE_VERSION = "hupa-dashboard-2026-10-06-v59-picnic-all-times"
 EXTRA_CACHE_VERSION = "extra-parser-2026-09-20-saturday-refresh-v2"
 TIMEREC_PARSER_VERSION = "timerec-parser-2026-09-20-v3-netto-saturday-contenthash"
 APP_DISPLAY_VERSION = "54"
@@ -10455,9 +10455,12 @@ function gkPicnicTimeText(text) {{
   var t = String(text || "").trim();
   if (!t) return false;
 
-  var hasTimeRange = /\b\d{1,2}(?::\d{2})?\s*(?:uhr)?\s*(?:bis|[-–])\s*\d{1,2}(?::\d{2})?\s*(?:uhr)?\b/i.test(t);
-  var hasTimeWord  = /anliefer(?:zeit|zeiten|ung)|lieferzeit|zeitfenster/i.test(t);
-  var hasDayAndTime = /\b(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|früh|frueh|morgen|vormittag|nachmittag|abend)\b.*\d{1,2}(?::\d{2})?/i.test(t);
+  // Picnic: jede erkennbare Anliefer-/Lieferzeit sowie reine Zeitfenster markieren.
+  // Doppelte geschweifte Klammern sind hier absichtlich nötig, da dieser JS-Code
+  // innerhalb eines Python-f-Strings erzeugt wird.
+  var hasTimeRange = /\b\d{{1,2}}(?::\d{{2}})?\s*(?:uhr)?\s*(?:bis|[-–])\s*\d{{1,2}}(?::\d{{2}})?\s*(?:uhr)?\b/i.test(t);
+  var hasTimeWord  = /anliefer(?:zeit|zeiten|ung|ng)|lieferzeit|zeitfenster/i.test(t);
+  var hasDayAndTime = /\b(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|früh|frueh|morgen|vormittag|nachmittag|abend)\b.*\d{{1,2}}(?::\d{{2}})?/i.test(t);
 
   return hasTimeWord || hasTimeRange || hasDayAndTime;
 }}
