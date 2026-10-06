@@ -9554,6 +9554,17 @@ document.addEventListener('keydown',function(e){{if(e.key==='Escape')closeBuildI
       #panel-gk .gk-hero-txt{{min-width:0;flex:1;}}
       #panel-gk .gk-hero-name{{font-size:23px;font-weight:900;letter-spacing:-.5px;color:var(--ink);line-height:1.1;}}
       #panel-gk .gk-hero-sub{{font-size:12.5px;font-weight:700;color:var(--gkd);margin-top:3px;}}
+      #panel-gk .gk-picnic-alert{{display:flex;align-items:center;gap:18px;background:linear-gradient(135deg,#b91c1c 0%,#dc2626 52%,#ef4444 100%);color:#fff;border:3px solid #7f1d1d;border-radius:16px;padding:20px 22px;margin:0 0 16px;box-shadow:0 12px 30px rgba(185,28,28,.28),inset 0 1px 0 rgba(255,255,255,.16);}}
+      #panel-gk .gk-picnic-alert-icon{{flex:0 0 auto;width:58px;height:58px;border-radius:15px;background:#fff;color:#b91c1c;display:flex;align-items:center;justify-content:center;font-size:33px;font-weight:900;box-shadow:0 6px 18px rgba(127,29,29,.28);}}
+      #panel-gk .gk-picnic-alert-body{{min-width:0;flex:1;}}
+      #panel-gk .gk-picnic-alert-title{{font-size:22px;font-weight:950;line-height:1.15;letter-spacing:.2px;text-transform:uppercase;margin-bottom:8px;}}
+      #panel-gk .gk-picnic-alert-text{{font-size:16px;font-weight:850;line-height:1.45;}}
+      #panel-gk .gk-picnic-alert-links{{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:10px;align-items:center;}}
+      #panel-gk .gk-picnic-alert a{{color:#fff;font-weight:900;text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere;}}
+      #panel-gk .gk-picnic-alert-phone{{display:inline-flex;align-items:center;gap:7px;background:#fff;color:#991b1b!important;text-decoration:none!important;border-radius:10px;padding:7px 12px;font-size:17px;font-weight:950!important;box-shadow:0 4px 12px rgba(127,29,29,.25);white-space:nowrap;}}
+      #panel-gk .gk-picnic-time{{display:block;background:#fff7ed;border:3px solid #f97316;border-left:9px solid #ea580c;border-radius:13px;padding:13px 15px;margin:10px 0;color:#7c2d12;font-size:15px;font-weight:900;line-height:1.5;box-shadow:0 6px 18px rgba(234,88,12,.14);}}
+      #panel-gk .gk-picnic-time::before{{content:"ANLIEFERZEIT  •  ";font-size:11px;font-weight:950;letter-spacing:.8px;color:#c2410c;}}
+      @media (max-width:700px){{#panel-gk .gk-picnic-alert{{align-items:flex-start;padding:16px;gap:12px;}}#panel-gk .gk-picnic-alert-icon{{width:46px;height:46px;font-size:27px;}}#panel-gk .gk-picnic-alert-title{{font-size:18px;}}#panel-gk .gk-picnic-alert-text{{font-size:14px;}}}}
       #panel-gk .gk-actions{{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;}}
       #panel-gk .gk-act{{display:inline-flex;align-items:center;gap:7px;background:var(--gk);color:#fff;border:none;border-radius:9px;padding:8px 14px;font-size:12.5px;font-weight:800;text-decoration:none;white-space:nowrap;cursor:pointer;box-shadow:0 4px 12px color-mix(in srgb,var(--gk) 32%,transparent);transition:filter .12s,transform .12s;}}
       #panel-gk .gk-act:hover{{filter:brightness(1.07);transform:translateY(-1px);}}
@@ -10435,6 +10446,31 @@ function gkEdekaLagerNmsLink(customer) {{
   return gkDistributorLinkHtml(GK_EDEKA_LAGER_NMS_EMAILS, "NMS", "Edeka Lager / NMS");
 }}
 
+
+function gkIsPicnic(customer) {{
+  return /picnic/i.test(String(customer && customer.name ? customer.name : ""));
+}}
+
+function gkPicnicTimeText(text) {{
+  var t = String(text || "");
+  return /anliefer(?:zeit|zeiten)|lieferzeit|zeitfenster|anlieferung.*(?:uhr|zeit)|(?:von|zwischen)\s+\d{1,2}(?::\d{2})?\s*(?:uhr)?\s*(?:bis|[-–])\s*\d{1,2}(?::\d{2})?/i.test(t);
+}}
+
+function gkPicnicAlertHtml(customer) {{
+  if (!gkIsPicnic(customer)) return "";
+  return "<div class='gk-picnic-alert' role='alert'>"
+       + "<div class='gk-picnic-alert-icon' aria-hidden='true'>&#9888;</div>"
+       + "<div class='gk-picnic-alert-body'>"
+       + "<div class='gk-picnic-alert-title'>Wichtig – auch bei kleinen Abweichungen informieren</div>"
+       + "<div class='gk-picnic-alert-text'>Auch bei kleineren Abweichungen, Verzug oder erwartetem Verzug bitte Picnic sofort informieren.</div>"
+       + "<div class='gk-picnic-alert-links'>"
+       + "<a href='mailto:purchaseorders.de@teampicnic.com'>purchaseorders.de@teampicnic.com</a>"
+       + "<a href='mailto:simon.drossard@teampicnic.com'>simon.drossard@teampicnic.com</a>"
+       + "<span style='font-weight:950;'>und im FC5 anrufen:</span>"
+       + "<a class='gk-picnic-alert-phone' href='tel:+4917615658642'>&#9742; 0176 156 586 42</a>"
+       + "</div></div></div>";
+}}
+
 // Spaltentyp aus Header-Name ermitteln
 function gkColType(header) {{
   var h = (header || "").toLowerCase();
@@ -10607,6 +10643,8 @@ function gkRenderStructured(customer, detail) {{
   if (heroActs) html += "<div class='gk-actions'>" + heroActs + "</div>";
   html += "</div>";
 
+  html += gkPicnicAlertHtml(customer);
+
   // ════════════════════════════════════════════════════════════════════════════
   // BLOCK 1: Standorte
   // ════════════════════════════════════════════════════════════════════════════
@@ -10744,10 +10782,18 @@ function gkRenderStructured(customer, detail) {{
         }}
         html += "</div>";
       }} else if (cr.isOther) {{
-        html += "<div class='gk-c-other'>"
-              + "<span class='gk-c-other-l'>" + gkEsc(cr.header) + "</span>"
-              + "<span class='gk-c-other-v'>" + cr.vals.map(gkEsc).join("<br>") + "</span>"
-              + "</div>";
+        var otherText = String(cr.header || "") + " " + (cr.vals || []).join(" ");
+        if (gkIsPicnic(customer) && gkPicnicTimeText(otherText)) {{
+          html += "<div class='gk-picnic-time'>"
+                + "<span style='display:block;font-size:12px;color:#9a3412;margin-bottom:3px;'>" + gkEsc(cr.header) + "</span>"
+                + "<span style='font-size:17px;color:#7c2d12;'>" + cr.vals.map(gkEsc).join("<br>") + "</span>"
+                + "</div>";
+        }} else {{
+          html += "<div class='gk-c-other'>"
+                + "<span class='gk-c-other-l'>" + gkEsc(cr.header) + "</span>"
+                + "<span class='gk-c-other-v'>" + cr.vals.map(gkEsc).join("<br>") + "</span>"
+                + "</div>";
+        }}
       }} else {{
         var hasEmail     = cr.emails && cr.emails.length;
         var hasLabelText = cr.labelText && cr.labelText.length;
@@ -10788,8 +10834,9 @@ function gkRenderStructured(customer, detail) {{
           + "<span class='gk-cnt'>" + allHints.length + "</span></div>";
     html += "<div>";
     allHints.forEach(function(h, i) {{
-      html += "<div class='gk-hint'><span class='gk-hint-n'>" + (i+1) + "</span>"
-            + "<span class='gk-hint-t'>" + gkEsc(h) + "</span></div>";
+      var hintCls = (gkIsPicnic(customer) && gkPicnicTimeText(h)) ? " gk-picnic-time" : "";
+      html += "<div class='gk-hint'" + (hintCls ? " style='border-top:none;padding:0 16px 10px;'" : "") + "><span class='gk-hint-n'>" + (i+1) + "</span>"
+            + "<span class='gk-hint-t" + hintCls + "'>" + gkEsc(h) + "</span></div>";
     }});
     html += "</div></div>";
   }}
@@ -10817,6 +10864,8 @@ function gkRenderFreeform(customer, detail) {{
   if (ffActs) html += "<div class='gk-actions'>" + ffActs + "</div>";
   html += "</div>";
 
+  html += gkPicnicAlertHtml(customer);
+
   html += "<div class='gk-card'>";
 
   (customer.lines || []).forEach(function(line) {{
@@ -10826,8 +10875,11 @@ function gkRenderFreeform(customer, detail) {{
     var isSection = gkIsSection(t);
     var hasTelNum = !isEmail && /\\d{{5,}}/.test(t) && t.length < 60;
     var isLong = t.length > 90;
+    var isPicnicTime = gkIsPicnic(customer) && gkPicnicTimeText(t);
 
-    if (isSection) {{
+    if (isPicnicTime) {{
+      html += "<div class='gk-ff-row'><span class='gk-picnic-time'>" + gkEsc(t) + "</span></div>";
+    }} else if (isSection) {{
       var sectionName = t.replace(/:$/, "");
       var sectionKey = sectionName.toLowerCase().trim();
       html += "<div class='gk-c-sec' style='margin:0;padding:11px 16px;border-bottom:1px solid #eef2f7;background:linear-gradient(180deg,#fbfdff,#fff);'>"
