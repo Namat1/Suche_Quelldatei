@@ -10452,8 +10452,14 @@ function gkIsPicnic(customer) {{
 }}
 
 function gkPicnicTimeText(text) {{
-  var t = String(text || "");
-  return /anliefer(?:zeit|zeiten)|lieferzeit|zeitfenster|anlieferung.*(?:uhr|zeit)|(?:von|zwischen)\s+\d{1,2}(?::\d{2})?\s*(?:uhr)?\s*(?:bis|[-–])\s*\d{1,2}(?::\d{2})?/i.test(t);
+  var t = String(text || "").trim();
+  if (!t) return false;
+
+  var hasTimeRange = /\b\d{1,2}(?::\d{2})?\s*(?:uhr)?\s*(?:bis|[-–])\s*\d{1,2}(?::\d{2})?\s*(?:uhr)?\b/i.test(t);
+  var hasTimeWord  = /anliefer(?:zeit|zeiten|ung)|lieferzeit|zeitfenster/i.test(t);
+  var hasDayAndTime = /\b(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|früh|frueh|morgen|vormittag|nachmittag|abend)\b.*\d{1,2}(?::\d{2})?/i.test(t);
+
+  return hasTimeWord || hasTimeRange || hasDayAndTime;
 }}
 
 function gkPicnicAlertHtml(customer) {{
