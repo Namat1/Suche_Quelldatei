@@ -14195,6 +14195,49 @@ def _dk_check(comment):
     return False
 
 
+_DK_SPED_KEYS = ["zippel", "logistik", "spedition", "transport", "eu-log", "eu log",
+                 "gmbh", " kg", "e.k.", "fremd", "subunternehmer"]
+
+
+def _dk_ist_spedition(nn, vn=""):
+    """True bei Speditionen/Fremdfirmen (keine internen Fahrer)."""
+    t = f"{nn} {vn}".lower()
+    return any(k in t for k in _DK_SPED_KEYS)
+
+
+def _dk_sped_namen(raw_bytes):
+    """Namen aus Blatt 'a Fahrer': alles ab Abschnitt 'Speditionen' bzw. F1-Nr. >= 8000."""
+    from io import BytesIO
+    namen = set()
+    try:
+        xl = pd.ExcelFile(BytesIO(raw_bytes))
+        sh = next((x for x in xl.sheet_names if x.strip().lower() == "a fahrer"), None)
+        if sh is None:
+            return namen
+        d = xl.parse(sh, header=None)
+        in_sped = False
+        for _, r in d.iterrows():
+            a = r[0] if 0 in r else None
+            if isinstance(a, str) and a.strip().lower().startswith("spedition"):
+                in_sped = True
+                continue
+            nr = None
+            try:
+                nr = int(float(a))
+            except Exception:
+                pass
+            if isinstance(a, str) and in_sped is False:
+                pass
+            elif isinstance(a, str) and nr is None:
+                in_sped = False  # neuer Abschnitt
+            ist = in_sped or (nr is not None and nr >= 8000)
+            if ist and 1 in r and pd.notna(r[1]):
+                namen.add(_zp_norm(str(r[1])))
+    except Exception:
+        pass
+    return namen
+
+
 def parse_drittkunden_excel(dateien: list) -> str:
     """Liest Touren-Excels auf Drittkunden-Zulage (Ahaus etc.)."""
     import json as _j
@@ -14206,7 +14249,9 @@ def parse_drittkunden_excel(dateien: list) -> str:
     for datei in dateien:
         try:
             datei.seek(0)
-            df = pd.read_excel(BytesIO(datei.read()), sheet_name=0, header=None)
+            _raw = datei.read()
+            sped_namen = _dk_sped_namen(_raw)
+            df = pd.read_excel(BytesIO(_raw), sheet_name=0, header=None)
             df = df.iloc[4:].reset_index(drop=True)
             df.columns = range(df.shape[1])
         except Exception:
@@ -14240,7 +14285,9 @@ def parse_drittkunden_excel(dateien: list) -> str:
                 if key in seen:
                     continue
                 seen.add(key)
-                zulage = 0 if "zippel" in nn.lower() else 20
+                if _zp_norm(f"{nn} {vn}".replace(" 0","")) in sped_namen or _zp_norm(nn) in sped_namen or _dk_ist_spedition(nn, vn):
+                    continue
+                zulage = 20
                 persnr = _zp_persnr(nn, vn)
                 entries.append({
                     "name": name,
