@@ -69,7 +69,7 @@ st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
 APP_CACHE_VERSION = "hupa-dashboard-2026-10-06-v60-picnic-all-times-hotfix"
-EXTRA_CACHE_VERSION = "extra-parser-2026-10-07-rasting-drittkunden"
+EXTRA_CACHE_VERSION = "extra-parser-2026-10-07-drittkunden-intern-v2"
 TIMEREC_PARSER_VERSION = "timerec-parser-2026-09-20-v3-netto-saturday-contenthash"
 APP_DISPLAY_VERSION = "54"
 APP_DISPLAY_NAME = "NFC Generator"
