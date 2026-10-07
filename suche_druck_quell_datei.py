@@ -69,7 +69,7 @@ st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
 APP_CACHE_VERSION = "hupa-dashboard-2026-10-06-v60-picnic-all-times-hotfix"
-EXTRA_CACHE_VERSION = "extra-parser-2026-09-20-saturday-refresh-v2"
+EXTRA_CACHE_VERSION = "extra-parser-2026-10-07-rasting-drittkunden"
 TIMEREC_PARSER_VERSION = "timerec-parser-2026-09-20-v3-netto-saturday-contenthash"
 APP_DISPLAY_VERSION = "54"
 APP_DISPLAY_NAME = "NFC Generator"
@@ -14173,14 +14173,22 @@ def parse_zulage_excel(dateien: list) -> str:
 
 DRITTKUNDEN_KEYWORDS = [
     "ahaus", "borkholzhausen", "glandorf", "optifair", "opti fair",
-    "edv", "edv fleisch", "elfering", "elfering ahaus"
+    "edv", "edv fleisch", "elfering", "elfering ahaus",
+    "rasting", "rastin", "rastink", "rasthing", "rassting", "rastig",
+    "rasdting", "rasding", "rastng", "rasteng", "rastting", "rastiing",
+    "rasting essen", "rasting meckenheim", "nur essen", "nur rasting",
+    "rassthing", "rasstin", "raasting", "rastingg", "rasting.", "rasteing"
 ]
 
 
 def _dk_check(comment):
     if isinstance(comment, str):
         c = comment.lower()
-        return any(k in c for k in DRITTKUNDEN_KEYWORDS)
+        if any(k in c for k in DRITTKUNDEN_KEYWORDS):
+            return True
+        c2 = re.sub(r"[\s\-_./]+", "", c)
+        return ("rasting" in c2 or "rasthing" in c2 or "rastink" in c2
+                or "nuressen" in c2)
     return False
 
 
