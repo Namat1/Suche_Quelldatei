@@ -14177,6 +14177,7 @@ DRITTKUNDEN_KEYWORDS = [
     "rasting", "rastin", "rastink", "rasthing", "rassting", "rastig",
     "rasdting", "rasding", "rastng", "rasteng", "rastting", "rastiing",
     "rasting essen", "rasting meckenheim", "nur essen", "nur rasting",
+    "meckenheim", "meckenhei",
     "rassthing", "rasstin", "raasting", "rastingg", "rasting.", "rasteing"
 ]
 
@@ -14185,6 +14186,8 @@ def _dk_check(comment):
     if isinstance(comment, str):
         c = comment.lower()
         if any(k in c for k in DRITTKUNDEN_KEYWORDS):
+            return True
+        if re.search(r"(?<![a-zäöüß])essen(?![a-zäöüß])", c):
             return True
         c2 = re.sub(r"[\s\-_./]+", "", c)
         return ("rasting" in c2 or "rasthing" in c2 or "rastink" in c2
