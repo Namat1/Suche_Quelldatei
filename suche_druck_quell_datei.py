@@ -33465,6 +33465,7 @@ def _build_embedded_data_js(
     timerec_json: str,
     spediteure_json: str,
     versp_abfahrt_json: str,
+    azubi_json: str = "{}",
 ) -> str:
     data = {
         "fahrzeugwaesche": _json_or_default(fahrzeugwaesche_json, "[]"),
@@ -33482,6 +33483,7 @@ def _build_embedded_data_js(
         "timerecording": _json_or_default(timerec_json, "{}"),
         "spediteure": _json_or_default(spediteure_json, '{"katalog":[],"fahrten":[]}'),
         "verspaetung_abfahrt": _json_or_default(versp_abfahrt_json, "{}"),
+        "azubis": _json_or_default(azubi_json, "{}"),
     }
     raw = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     compressed_b64 = base64.b64encode(zlib.compress(raw, 9)).decode("ascii")
@@ -33990,6 +33992,817 @@ def _zulagen_graph_js() -> str:
 // ── /Zulagen-Graph ────────────────────────────────────────────────────────────
 """
 
+
+
+def _azubi_panels_html() -> str:
+    """HTML-Panel für den Bereich Azubis BKF."""
+    return r"""
+<style>
+  #panel-azubi{--az:#0f766e;--az2:#14b8a6;--az-dark:#134e4a;--ink:#132033;--muted:#64748b;--line:#e2e8f0;min-height:0;overflow:hidden!important;flex-direction:column}
+  #panel-azubi .az-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;padding:18px 18px 40px}
+  #panel-azubi .az-shell{width:100%;max-width:1728px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+  .az-card{background:#fff;border:1px solid #d8e2ea;border-radius:13px;box-shadow:0 3px 12px rgba(15,23,42,.06);overflow:hidden}
+  .az-head{display:flex;align-items:center;gap:13px;padding:16px 20px;background:linear-gradient(180deg,#f0fdfa 0%,#fff 100%);border-bottom:1px solid #e6eef2;flex-wrap:wrap}
+  .az-icon{width:44px;height:44px;border-radius:11px;background:linear-gradient(135deg,#14b8a6,#0f766e);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 5px 13px rgba(15,118,110,.25);flex-shrink:0}
+  .az-title{font-size:19px;font-weight:950;color:var(--ink);letter-spacing:-.3px}
+  .az-sub{font-size:11.5px;font-weight:650;color:var(--muted);margin-top:2px}
+  .az-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 18px;background:#fbfcfe;border-bottom:1px solid #edf1f5}
+  .az-select,.az-search{padding:8px 10px;border:1.5px solid #cfd8e3;border-radius:8px;background:#fff;color:#26374a;font:700 12px 'Segoe UI',Arial,sans-serif;outline:none}
+  .az-search{min-width:220px;flex:1;max-width:360px}
+  .az-select:focus,.az-search:focus{border-color:#14b8a6;box-shadow:0 0 0 3px rgba(20,184,166,.14)}
+  .az-check{display:inline-flex;align-items:center;gap:6px;font:800 12px 'Segoe UI',Arial,sans-serif;color:#334155;cursor:pointer;user-select:none}
+  .az-btn{padding:8px 13px;border:1.5px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;font:850 12px 'Segoe UI',Arial,sans-serif;cursor:pointer;white-space:nowrap}
+  .az-btn:hover{border-color:#14b8a6;color:#0f766e}
+  .az-btn.primary{background:linear-gradient(180deg,#22c55e 0%,#15803d 100%);border-color:#15803d;color:#fff}
+  .az-btn.primary:hover{filter:brightness(1.05);color:#fff}
+  .az-tabs{display:flex;gap:4px;flex-wrap:wrap;padding:10px 14px;background:#fff}
+  .az-tab{padding:8px 13px;border-radius:999px;border:1.5px solid transparent;background:#f1f5f9;color:#334155;font:850 12px 'Segoe UI',Arial,sans-serif;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .az-tab:hover{background:#e2f5f2}
+  .az-tab.active{background:#0f766e;color:#fff;box-shadow:0 3px 9px rgba(15,118,110,.25)}
+  .az-tab .az-pill{background:#dc2626;color:#fff;border-radius:999px;padding:0 6px;font-size:10px;line-height:16px}
+  .az-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;padding:14px 16px;background:#f6f8fb}
+  .az-kpi{background:#fff;border:1px solid #e1e7ef;border-radius:11px;padding:11px 13px;min-width:0}
+  .az-kpi-label{font-size:9.5px;font-weight:950;color:#718096;text-transform:uppercase;letter-spacing:.55px}
+  .az-kpi-value{font-size:21px;font-weight:950;color:#172033;margin-top:3px;font-variant-numeric:tabular-nums}
+  .az-kpi-note{font-size:10px;color:#94a3b8;font-weight:700;margin-top:2px}
+  .az-section{padding:14px 16px}
+  .az-section-title{font-size:13px;font-weight:950;color:#1f2937;margin:0 0 10px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .az-section-title small{font-weight:700;color:#94a3b8;font-size:11px}
+  .az-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+  .az-person{border:1px solid #e1e7ef;border-radius:12px;padding:12px 13px;background:#fff;cursor:pointer;transition:box-shadow .15s,border-color .15s;display:flex;flex-direction:column;gap:9px;min-width:0}
+  .az-person:hover{border-color:#5eead4;box-shadow:0 6px 18px rgba(15,118,110,.12)}
+  .az-person.inactive{opacity:.62;background:#fafafa}
+  .az-p-top{display:flex;align-items:center;gap:10px;min-width:0}
+  .az-av{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:900 13px 'Segoe UI',Arial,sans-serif;flex-shrink:0}
+  .az-p-name{font-size:13.5px;font-weight:900;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .az-p-meta{font-size:11px;color:#64748b;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .az-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font:850 10.5px 'Segoe UI',Arial,sans-serif;white-space:nowrap}
+  .az-code{display:inline-flex;align-items:center;justify-content:center;min-width:26px;padding:2px 6px;border-radius:6px;font:900 10.5px 'Segoe UI',Arial,sans-serif;color:#fff;white-space:nowrap}
+  .az-strip{display:grid;grid-template-columns:repeat(14,1fr);gap:2px}
+  .az-strip div{height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;font:850 8.5px 'Segoe UI',Arial,sans-serif;color:#fff;background:#eef2f6;overflow:hidden}
+  .az-strip div.we{background:#f8fafc}
+  .az-strip div.today{outline:2px solid #0f172a;outline-offset:-1px}
+  .az-mini{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+  .az-mini div{background:#f8fafc;border:1px solid #edf1f5;border-radius:8px;padding:5px 4px;text-align:center}
+  .az-mini b{display:block;font-size:14px;font-weight:950;color:#0f172a;font-variant-numeric:tabular-nums}
+  .az-mini span{display:block;font-size:9px;font-weight:850;color:#64748b;text-transform:uppercase;letter-spacing:.3px}
+  .az-bar{height:8px;border-radius:999px;background:#eef2f6;overflow:hidden;display:flex}
+  .az-bar i{display:block;height:100%}
+  .az-p-foot{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#475569;font-weight:700;flex-wrap:wrap}
+  .az-p-foot a{color:#0f766e;text-decoration:none;font-weight:850}
+  .az-table-wrap{overflow:auto;border:1px solid #e1e7ef;border-radius:10px;max-height:calc(100vh - 330px)}
+  table.az-table{border-collapse:separate;border-spacing:0;width:100%;font:700 12px 'Segoe UI',Arial,sans-serif;color:#1e293b}
+  table.az-table th{position:sticky;top:0;background:#f1f5f9;color:#475569;font-size:10.5px;font-weight:950;text-transform:uppercase;letter-spacing:.35px;padding:8px 9px;border-bottom:1px solid #dbe3ec;text-align:left;white-space:nowrap;z-index:2;cursor:pointer}
+  table.az-table th.num,table.az-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+  table.az-table td{padding:7px 9px;border-bottom:1px solid #f0f3f7;white-space:nowrap}
+  table.az-table tr:hover td{background:#f8fffd}
+  table.az-table td.name{font-weight:900;color:#0f172a;cursor:pointer}
+  table.az-table tr.inactive td{color:#94a3b8}
+  table.az-cal{border-collapse:separate;border-spacing:0;font:800 10px 'Segoe UI',Arial,sans-serif}
+  table.az-cal th,table.az-cal td{padding:0;border-bottom:1px solid #f0f3f7;text-align:center}
+  table.az-cal th{position:sticky;top:0;background:#f1f5f9;color:#475569;z-index:2;height:34px;min-width:30px;font-size:10px}
+  table.az-cal th.we{background:#e6ebf1}
+  table.az-cal th.today{background:#0f766e;color:#fff}
+  table.az-cal td.nm,table.az-cal th.nm{position:sticky;left:0;background:#fff;text-align:left;padding:5px 10px;min-width:190px;max-width:230px;z-index:1;font-size:11.5px;font-weight:900;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;border-right:1px solid #e2e8f0}
+  table.az-cal th.nm{z-index:3;background:#f1f5f9;cursor:default}
+  table.az-cal td.c{height:26px;min-width:30px;color:#fff;border-left:1px solid #fff}
+  table.az-cal td.c.we{background:#f4f6f9}
+  table.az-cal td.c.today{box-shadow:inset 0 0 0 2px #0f172a}
+  table.az-cal tr.inactive td.nm{color:#94a3b8}
+  table.az-cal td.sum{background:#f8fafc;color:#334155;font-size:10px;padding:0 6px;border-left:1px solid #e2e8f0}
+  .az-legend{display:flex;flex-wrap:wrap;gap:6px 12px;font:750 11px 'Segoe UI',Arial,sans-serif;color:#475569}
+  .az-legend span{display:inline-flex;align-items:center;gap:5px}
+  .az-month-chart{display:grid;grid-template-columns:repeat(12,1fr);gap:8px;align-items:end;height:200px;padding:6px 4px 0}
+  .az-month-col{display:flex;flex-direction:column;align-items:stretch;gap:4px;height:100%}
+  .az-month-stack{flex:1;display:flex;flex-direction:column-reverse;border-radius:6px 6px 0 0;overflow:hidden;background:#f8fafc}
+  .az-month-stack i{display:block}
+  .az-month-lbl{text-align:center;font:850 10px 'Segoe UI',Arial,sans-serif;color:#64748b}
+  .az-list{display:flex;flex-direction:column;gap:7px}
+  .az-item{display:flex;gap:11px;align-items:flex-start;padding:9px 11px;border:1px solid #e8edf3;border-radius:10px;background:#fff}
+  .az-item.past{opacity:.55}
+  .az-date{min-width:92px;font:950 12px 'Segoe UI',Arial,sans-serif;color:#0f172a}
+  .az-date small{display:block;color:#94a3b8;font-weight:800;font-size:10px}
+  .az-item-body{flex:1;min-width:0;font:700 12px 'Segoe UI',Arial,sans-serif;color:#334155}
+  .az-item-body b{color:#0f172a}
+  .az-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+  .az-chip{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:1px 8px;font:800 10.5px 'Segoe UI',Arial,sans-serif;color:#334155}
+  .az-info-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+  .az-info{border:1px solid #e1e7ef;border-radius:12px;padding:12px 14px;background:#fff}
+  .az-info h4{margin:0 0 8px 0;font-size:12.5px;font-weight:950;color:#0f766e;text-transform:uppercase;letter-spacing:.4px}
+  .az-info ul{margin:0;padding-left:17px;font:700 12px 'Segoe UI',Arial,sans-serif;color:#334155;line-height:1.6}
+  .az-info a{color:#0f766e;font-weight:850}
+  .az-warn{border-left:4px solid #f59e0b;background:#fffbeb}
+  .az-err{border-left:4px solid #dc2626;background:#fef2f2}
+  .az-ok{border-left:4px solid #16a34a;background:#f0fdf4}
+  .az-empty{padding:60px 20px;text-align:center;color:#64748b;font:750 13px 'Segoe UI',Arial,sans-serif}
+  .az-empty b{display:block;font-size:16px;color:#0f172a;margin-bottom:6px}
+  .az-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+  .az-board-col{border:1px solid #e1e7ef;border-radius:11px;background:#fff;overflow:hidden}
+  .az-board-col h5{margin:0;padding:8px 11px;color:#fff;font:950 12px 'Segoe UI',Arial,sans-serif;display:flex;justify-content:space-between}
+  .az-board-col div{padding:6px 11px;border-bottom:1px solid #f1f5f9;font:750 12px 'Segoe UI',Arial,sans-serif;color:#1e293b;cursor:pointer}
+  .az-board-col div:hover{background:#f8fffd}
+  .az-modal{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:9999;padding:20px}
+  .az-modal.open{display:flex}
+  .az-modal-box{background:#fff;border-radius:14px;max-width:1180px;width:100%;max-height:calc(100vh - 40px);overflow:auto;box-shadow:0 25px 60px rgba(15,23,42,.35)}
+  .az-modal-head{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid #e6eef2;background:linear-gradient(180deg,#f0fdfa 0%,#fff 100%);position:sticky;top:0;z-index:2}
+  .az-close{margin-left:auto;border:none;background:#f1f5f9;border-radius:8px;width:34px;height:34px;font-size:18px;cursor:pointer}
+  .az-year{display:grid;grid-template-columns:44px repeat(31,1fr);gap:2px;font:800 9px 'Segoe UI',Arial,sans-serif}
+  .az-year div{height:19px;border-radius:3px;display:flex;align-items:center;justify-content:center;color:#fff;background:#f1f5f9;overflow:hidden}
+  .az-year div.lbl{background:none;color:#475569;justify-content:flex-start;font-size:10px}
+  .az-year div.hd{background:none;color:#94a3b8}
+  .az-year div.we{background:#e9edf2}
+  .az-year div.na{background:transparent}
+  .az-year div.today{outline:2px solid #0f172a;outline-offset:-1px}
+  @media (max-width:900px){.az-mini{grid-template-columns:repeat(3,1fr)}.az-month-chart{gap:3px}}
+</style>
+<div id="panel-azubi" style="display:none;flex:1;min-height:0;height:100%;background:linear-gradient(135deg,#effcf9 0%,#f6f8fb 45%,#f3f6fb 100%);font-family:'Segoe UI',Arial,sans-serif">
+  <div class="az-scroll" id="az-scroll">
+    <div class="az-shell">
+      <div class="az-card">
+        <div class="az-head">
+          <div class="az-icon">&#127891;</div>
+          <div style="min-width:0;flex:1">
+            <div class="az-title">Azubis Berufskraftfahrer</div>
+            <div class="az-sub" id="az-sub">Anwesenheitsliste Azubi BKF</div>
+          </div>
+          <button class="az-btn primary" onclick="azExportExcel()">&#128202; Excel</button>
+        </div>
+        <div class="az-controls">
+          <select class="az-select" id="az-year" onchange="azSetYear(this.value)"></select>
+          <input class="az-search" id="az-q" placeholder="Azubi suchen ..." oninput="azSetFilter('q',this.value)">
+          <select class="az-select" id="az-lj" onchange="azSetFilter('lj',this.value)"></select>
+          <select class="az-select" id="az-kl" onchange="azSetFilter('kl',this.value)"></select>
+          <label class="az-check"><input type="checkbox" id="az-active" checked onchange="azSetFilter('active',this.checked)"> nur aktive Azubis</label>
+        </div>
+        <div class="az-tabs" id="az-tabs"></div>
+      </div>
+      <div id="az-body"></div>
+    </div>
+  </div>
+  <div class="az-modal" id="az-modal" onclick="if(event.target===this)azCloseDetail()">
+    <div class="az-modal-box" id="az-modal-box"></div>
+  </div>
+</div>
+"""
+
+
+def _azubi_dashboard_js() -> str:
+    """JavaScript für den Bereich Azubis BKF (Anwesenheitsliste)."""
+    return r"""
+
+// ── Azubis Berufskraftfahrer ──────────────────────────────────────────────────
+var AZUBI_DATA = {};
+var AZ = { year: 0, tab: "overview", q: "", lj: "", kl: "", active: true, month: -1, weekStart: "", evalMode: "today", sort: { key: "name", dir: 1 } };
+var AZ_MONTHS = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+var AZ_MONTHS_LONG = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+var AZ_WD = ["So","Mo","Di","Mi","Do","Fr","Sa"];
+var AZ_CATS = [
+  { key: "tour",      label: "Tour",        color: "#2563eb", codes: ["T","AT","BT"] },
+  { key: "schule",    label: "Berufsschule",color: "#7c3aed", codes: ["BS"] },
+  { key: "fahrschule",label: "Fahrschule",  color: "#0891b2", codes: ["F"] },
+  { key: "lager",     label: "Lager/Hof",   color: "#64748b", codes: ["V","L","WA","WT","W"] },
+  { key: "pruefung",  label: "Prüfung",     color: "#db2777", codes: ["PV","ZP","AP","P"] },
+  { key: "schulung",  label: "Schulung/Runde", color: "#0d9488", codes: ["S","AR"] },
+  { key: "urlaub",    label: "Urlaub",      color: "#16a34a", codes: ["U"] },
+  { key: "krank",     label: "Krank",       color: "#dc2626", codes: ["K"] },
+  { key: "ausgleich", label: "Ausgleich",   color: "#d97706", codes: ["A"] },
+  { key: "feiertag",  label: "Feiertag",    color: "#94a3b8", codes: ["FT"] },
+  { key: "sonst",     label: "Sonstiges",   color: "#a16207", codes: [] }
+];
+var AZ_CODE_CAT = {};
+AZ_CATS.forEach(function(c){ c.codes.forEach(function(code){ AZ_CODE_CAT[code] = c; }); });
+var AZ_DEFAULT_LEGEND = { U: "Urlaub", K: "Krank", A: "Ausgleich", F: "Fahrschule", FT: "Feiertag", T: "Toureinsatz", BS: "Berufsschule" };
+var AZ_TABS = [
+  ["overview","&#127968; Übersicht"],
+  ["week","&#128197; Heute &amp; Woche"],
+  ["calendar","&#128467; Kalender"],
+  ["eval","&#128202; Auswertung"],
+  ["vacation","&#127796; Urlaub"],
+  ["dates","&#127891; Termine &amp; Prüfungen"],
+  ["info","&#128222; Infos &amp; Kontakte"],
+  ["checks","&#9888;&#65039; Hinweise"]
+];
+
+function azEsc(v){ return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+function azIso(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function azParse(iso){ var p=String(iso).split("-"); return new Date(+p[0], +p[1]-1, +p[2]); }
+function azToday(){ return azIso(new Date()); }
+function azFmt(iso, withYear){ var d=azParse(iso); return String(d.getDate()).padStart(2,"0")+"."+String(d.getMonth()+1).padStart(2,"0")+"."+(withYear===false?"":d.getFullYear()); }
+function azAddDays(iso, n){ var d=azParse(iso); d.setDate(d.getDate()+n); return azIso(d); }
+function azIsWeekend(iso){ var w=azParse(iso).getDay(); return w===0 || w===6; }
+function azCat(code){ return AZ_CODE_CAT[code] || AZ_CATS[AZ_CATS.length-1]; }
+function azColor(code){ return azCat(code).color; }
+function azLegendText(code){
+  var lg = (AZUBI_DATA && AZUBI_DATA.legend) || {};
+  return lg[code] || AZ_DEFAULT_LEGEND[code] || ("unbekannt (" + code + ")");
+}
+function azCodeHtml(code){ return code ? "<span class='az-code' style='background:"+azColor(code)+"' title='"+azEsc(code+" – "+azLegendText(code))+"'>"+azEsc(code)+"</span>" : "<span style='color:#cbd5e1'>–</span>"; }
+function azHue(s){ var h=0; s=String(s||""); for(var i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))%360; return h; }
+function azInitials(name){ var p=String(name||"").split(","); var a=(p[0]||"").trim(), b=(p[1]||"").trim(); return ((b.charAt(0)||"")+(a.charAt(0)||"")).toUpperCase() || "?"; }
+function azAvatar(name){ var h=azHue(name); return "<span class='az-av' style='background:hsl("+h+",55%,92%);color:hsl("+h+",45%,30%)'>"+azEsc(azInitials(name))+"</span>"; }
+function azDisplayName(name){ var p=String(name||"").split(","); return p.length>1 ? (p[1].trim()+" "+p[0].trim()) : String(name||""); }
+function azNum(v){ return (v==null || isNaN(v)) ? 0 : +v; }
+function azFmtNum(v){ return (Math.round(v*10)/10).toLocaleString("de-DE"); }
+function azPct(a,b){ return b>0 ? Math.round(a/b*1000)/10 : 0; }
+
+function azYears(){ return ((AZUBI_DATA && AZUBI_DATA.years) || []).map(function(y){ return y.year; }); }
+function azYearObj(y){ var ys=(AZUBI_DATA && AZUBI_DATA.years) || []; for(var i=0;i<ys.length;i++) if(ys[i].year===+y) return ys[i]; return null; }
+
+function azKeyTokens(k){ return String(k||"").split(" ").filter(Boolean); }
+function azLookup(map, key){
+  if(!map) return null;
+  if(map[key]) return map[key];
+  var t = azKeyTokens(key);
+  var best = null, bestScore = 0;
+  Object.keys(map).forEach(function(k){
+    var kt = azKeyTokens(k), hit = 0;
+    kt.forEach(function(x){ if(t.indexOf(x)>=0) hit++; });
+    var score = hit / Math.max(kt.length, t.length);
+    if(hit >= 2 && score > bestScore){ bestScore = score; best = map[k]; }
+  });
+  return bestScore >= 0.6 ? best : null;
+}
+
+function azExit(p){
+  var n = (p.notes || []).filter(function(x){ return /k(ü|u)ndig|beendet|abgebrochen/i.test(x.t); });
+  if(!n.length) return null;
+  n.sort(function(a,b){ return a.d < b.d ? -1 : 1; });
+  return n[0];
+}
+function azExitAnywhere(p){
+  // Austritt auch aus anderen Jahresblättern übernehmen
+  var ys = (AZUBI_DATA && AZUBI_DATA.years) || [], found = azExit(p);
+  ys.forEach(function(y){ y.people.forEach(function(q){ if(q.key===p.key){ var e=azExit(q); if(e && (!found || e.d < found.d)) found = e; } }); });
+  return found;
+}
+function azRefDate(){
+  var t = azToday(), y = +t.slice(0,4);
+  if(AZ.year < y) return AZ.year + "-12-31";
+  if(AZ.year > y) return AZ.year + "-01-01";
+  return t;
+}
+function azIsActive(p, ref){
+  var e = azExitAnywhere(p);
+  return !e || e.d > (ref || azRefDate());
+}
+function azEnrich(p){
+  var chip = azLookup(AZUBI_DATA.chips, p.key);
+  var phone = azLookup(AZUBI_DATA.phones, p.key);
+  return { chip: chip ? chip.chip : "", tel: phone ? phone.tel : "" };
+}
+
+function azCounts(p, fromIso, toIso){
+  var c = {}, cat = {};
+  AZ_CATS.forEach(function(x){ cat[x.key] = 0; });
+  Object.keys(p.days || {}).forEach(function(d){
+    if(fromIso && d < fromIso) return;
+    if(toIso && d > toIso) return;
+    var code = p.days[d];
+    c[code] = (c[code] || 0) + 1;
+    cat[azCat(code).key]++;
+  });
+  return { codes: c, cats: cat };
+}
+function azWorkDays(cats){ return cats.tour + cats.schule + cats.fahrschule + cats.lager + cats.pruefung + cats.schulung + cats.sonst; }
+
+function azVacation(p){
+  var ref = azRefDate(), taken = 0, planned = 0, plannedDates = [];
+  Object.keys(p.days || {}).forEach(function(d){
+    if(p.days[d] !== "U") return;
+    if(d <= ref) taken++; else { planned++; plannedDates.push(d); }
+  });
+  var anspruch = azNum(p.urlaub), rest = azNum(p.rest), total = anspruch + rest;
+  return { anspruch: anspruch, rest: rest, total: total, taken: taken, planned: planned, open: total - taken - planned, ranges: azRanges(plannedDates.sort()) };
+}
+
+function azRanges(dates){
+  var out = [], cur = null;
+  dates.forEach(function(d){
+    if(cur){
+      var gap = (azParse(d) - azParse(cur.to)) / 86400000;
+      var onlyWeekend = true;
+      for(var i=1;i<gap;i++){ if(!azIsWeekend(azAddDays(cur.to, i))) { onlyWeekend = false; break; } }
+      if(gap <= 1 || (gap <= 3 && onlyWeekend)){ cur.to = d; cur.n++; return; }
+      out.push(cur);
+    }
+    cur = { from: d, to: d, n: 1 };
+  });
+  if(cur) out.push(cur);
+  return out;
+}
+function azRangeText(r){ return r.from === r.to ? azFmt(r.from) : (azFmt(r.from,false) + " – " + azFmt(r.to)); }
+
+function azPeople(){
+  var y = azYearObj(AZ.year); if(!y) return [];
+  var ref = azRefDate(), q = AZ.q.toLowerCase().trim();
+  return y.people.filter(function(p){
+    if(AZ.active && !azIsActive(p, ref)) return false;
+    if(AZ.lj && String(p.lehrjahr) !== AZ.lj) return false;
+    if(AZ.kl && String(p.klasse) !== AZ.kl) return false;
+    if(q && p.name.toLowerCase().indexOf(q) < 0 && String(p.klasse).toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+}
+
+// ── Steuerung ────────────────────────────────────────────────────────────────
+function azOpen(){
+  var go = function(){
+    if(!AZUBI_DATA || !AZUBI_DATA.years || !AZUBI_DATA.years.length){ azRenderEmpty(); return; }
+    if(!AZ.year){
+      var ys = azYears(), cy = new Date().getFullYear();
+      AZ.year = ys.indexOf(cy) >= 0 ? cy : ys[ys.length-1];
+    }
+    azFillControls();
+    azRender();
+  };
+  if(typeof loadEmbeddedData === "function"){ loadEmbeddedData().then(go, go); } else go();
+}
+function azRenderEmpty(){
+  var t = document.getElementById("az-tabs"); if(t) t.innerHTML = "";
+  document.getElementById("az-body").innerHTML = "<div class='az-card'><div class='az-empty'><b>Keine Azubi-Daten geladen</b>Im Generator unter „Zusatzdateien“ die Datei <i>Anwesenheitsliste Berufskraftfahrer.xlsx</i> hochladen und die suche.html neu erstellen.</div></div>";
+}
+function azFillControls(){
+  var y = azYearObj(AZ.year), ys = azYears();
+  document.getElementById("az-year").innerHTML = ys.map(function(v){ return "<option value='"+v+"'"+(v===AZ.year?" selected":"")+">Jahr "+v+"</option>"; }).join("");
+  var ljs = [], kls = [];
+  (y ? y.people : []).forEach(function(p){
+    if(p.lehrjahr && ljs.indexOf(String(p.lehrjahr))<0) ljs.push(String(p.lehrjahr));
+    if(p.klasse && kls.indexOf(String(p.klasse))<0) kls.push(String(p.klasse));
+  });
+  ljs.sort(); kls.sort();
+  if(AZ.lj && ljs.indexOf(AZ.lj)<0) AZ.lj = "";
+  if(AZ.kl && kls.indexOf(AZ.kl)<0) AZ.kl = "";
+  document.getElementById("az-lj").innerHTML = "<option value=''>Alle Lehrjahre</option>" + ljs.map(function(v){ return "<option value='"+azEsc(v)+"'"+(v===AZ.lj?" selected":"")+">Lehrjahr "+azEsc(v)+"</option>"; }).join("");
+  document.getElementById("az-kl").innerHTML = "<option value=''>Alle Klassen</option>" + kls.map(function(v){ return "<option value='"+azEsc(v)+"'"+(v===AZ.kl?" selected":"")+">"+azEsc(v)+"</option>"; }).join("");
+  document.getElementById("az-active").checked = AZ.active;
+  var sub = document.getElementById("az-sub");
+  if(sub) sub.textContent = "Quelle: " + (AZUBI_DATA.file || "Anwesenheitsliste") + " · " + ys.length + " Jahresblätter (" + ys.join(", ") + ") · Stichtag " + azFmt(azRefDate());
+}
+function azSetYear(v){ AZ.year = +v; AZ.month = -1; AZ.weekStart = ""; azFillControls(); azRender(); }
+function azSetFilter(k, v){ AZ[k] = v; azRender(); }
+function azSetTab(t){ AZ.tab = t; azRender(); var s=document.getElementById("az-scroll"); if(s) s.scrollTop = 0; }
+
+function azRender(){
+  var checks = azChecks();
+  document.getElementById("az-tabs").innerHTML = AZ_TABS.map(function(t){
+    var nProb = checks.filter(function(c){ return c.level==="err" || c.level==="warn"; }).length;
+    var extra = (t[0]==="checks" && nProb) ? " <span class='az-pill'>"+nProb+"</span>" : "";
+    return "<button class='az-tab"+(AZ.tab===t[0]?" active":"")+"' onclick=\"azSetTab('"+t[0]+"')\">"+t[1]+extra+"</button>";
+  }).join("");
+  var body = document.getElementById("az-body");
+  var fn = { overview: azRenderOverview, week: azRenderWeek, calendar: azRenderCalendar, eval: azRenderEval, vacation: azRenderVacation, dates: azRenderDates, info: azRenderInfo, checks: azRenderChecks }[AZ.tab] || azRenderOverview;
+  body.innerHTML = fn(checks);
+}
+
+// ── Übersicht ────────────────────────────────────────────────────────────────
+function azRenderOverview(){
+  var people = azPeople(), ref = azRefDate(), y = azYearObj(AZ.year);
+  var all = y ? y.people : [];
+  var active = all.filter(function(p){ return azIsActive(p, ref); });
+  var bday = azBoardDate(ref, active), bLbl = bday === ref ? "Heute" : AZ_WD[azParse(bday).getDay()] + " " + azFmt(bday, false);
+  var exits = all.filter(function(p){ var e = azExitAnywhere(p); return e && e.d.slice(0,4) === String(AZ.year); });
+  var todayCat = {}; AZ_CATS.forEach(function(c){ todayCat[c.key] = 0; });
+  var sick = 0, vacOpen = 0, tourSum = 0;
+  active.forEach(function(p){
+    var code = p.days[bday]; if(code) todayCat[azCat(code).key]++;
+    var c = azCounts(p, null, ref); sick += c.cats.krank; tourSum += c.cats.tour;
+    var v = azVacation(p); if(v.open > 0) vacOpen += v.open;
+  });
+  var ljCount = {}; active.forEach(function(p){ var k = String(p.lehrjahr || "?"); ljCount[k] = (ljCount[k]||0)+1; });
+  var ljText = Object.keys(ljCount).sort().map(function(k){ return "LJ "+k+": "+ljCount[k]; }).join(" · ");
+  var kpis = [
+    ["Aktive Azubis", active.length, ljText || "–"],
+    [bLbl + " Tour", todayCat.tour, bday === ref ? "Stichtag " + azFmt(ref) : "nächster Arbeitstag"],
+    [bLbl + " Berufsschule", todayCat.schule, "Fahrschule: " + todayCat.fahrschule],
+    [bLbl + " Urlaub / Krank", todayCat.urlaub + " / " + todayCat.krank, "Ausgleich: " + todayCat.ausgleich],
+    ["Tourtage " + AZ.year, tourSum, "aktive Azubis bis Stichtag"],
+    ["Krankentage " + AZ.year, sick, "aktive Azubis bis Stichtag"],
+    ["Offener Urlaub", vacOpen, "nicht verplante Tage"],
+    ["Abgänge " + AZ.year, exits.length, exits.map(function(p){ return azDisplayName(p.name).split(" ")[0]; }).join(", ") || "–"]
+  ];
+  var html = "<div class='az-card'><div class='az-kpis'>" + kpis.map(function(k){
+    return "<div class='az-kpi'><div class='az-kpi-label'>"+k[0]+"</div><div class='az-kpi-value'>"+azEsc(k[1])+"</div><div class='az-kpi-note' title='"+azEsc(k[2])+"' style='white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>"+azEsc(k[2])+"</div></div>";
+  }).join("") + "</div></div>";
+
+  // Heute-Board
+  var groups = {};
+  active.forEach(function(p){ var code = p.days[bday]; var c = code ? azCat(code) : null; var k = c ? c.key : "_none"; (groups[k] = groups[k] || []).push(p); });
+  html += "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#128205; Wo sind die Azubis am " + AZ_WD[azParse(bday).getDay()] + " " + azFmt(bday) + "?" + (bday !== ref ? " <small>(nächster Arbeitstag nach dem " + azFmt(ref) + ")</small>" : "") + "</div><div class='az-board'>";
+  AZ_CATS.concat([{key:"_none",label:"Kein Eintrag",color:"#cbd5e1"}]).forEach(function(c){
+    var list = groups[c.key]; if(!list || !list.length) return;
+    html += "<div class='az-board-col'><h5 style='background:"+c.color+"'><span>"+azEsc(c.label)+"</span><span>"+list.length+"</span></h5>" +
+      list.map(function(p){ return "<div onclick=\"azOpenDetail('"+azEsc(p.key)+"')\">"+azEsc(azDisplayName(p.name))+(p.days[bday]?" <span style='color:#94a3b8;font-size:10.5px'>("+azEsc(p.days[bday])+")</span>":"")+"</div>"; }).join("") + "</div>";
+  });
+  html += "</div></div></div>";
+
+  // Karten
+  html += "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#128101; Azubis <small>" + people.length + " angezeigt · Klick öffnet Details</small></div>";
+  if(!people.length) html += "<div class='az-empty'>Keine Azubis für diese Auswahl.</div>";
+  html += "<div class='az-grid'>" + people.map(function(p){ return azPersonCard(p, ref); }).join("") + "</div></div></div>";
+  return html;
+}
+function azBoardDate(ref, active){
+  for(var i=0;i<8;i++){
+    var d = azAddDays(ref, i);
+    if(d.slice(0,4) !== String(AZ.year)) break;
+    if(azIsWeekend(d)) continue;
+    if(active.some(function(p){ return p.days[d]; })) return d;
+  }
+  return ref;
+}
+function azPersonCard(p, ref){
+  var ex = azEnrich(p), exit = azExitAnywhere(p), act = azIsActive(p, ref);
+  var c = azCounts(p, null, ref), v = azVacation(p);
+  var start = azAddDays(ref, -azParse(ref).getDay() + 1); // Montag dieser Woche
+  var strip = "";
+  for(var i=0;i<14;i++){
+    var d = azAddDays(start, i), code = p.days[d];
+    strip += "<div class='"+(azIsWeekend(d)?"we ":"")+(d===ref?"today":"")+"' title='"+azEsc(AZ_WD[azParse(d).getDay()]+" "+azFmt(d)+": "+(code?code+" – "+azLegendText(code):"kein Eintrag"))+"' style='"+(code?"background:"+azColor(code):"")+"'>"+(code?azEsc(code):"")+"</div>";
+  }
+  var status = exit ? "<span class='az-badge' style='background:"+(act?"#fef3c7;color:#92400e":"#fee2e2;color:#991b1b")+"'>"+azEsc(exit.t)+" "+azFmt(exit.d)+"</span>"
+                    : "<span class='az-badge' style='background:#dcfce7;color:#166534'>aktiv</span>";
+  var todayCode = p.days[ref];
+  var vt = Math.max(v.total, v.taken + v.planned, 1);
+  var bar = "<div class='az-bar' title='Urlaub: "+v.taken+" genommen, "+v.planned+" geplant, "+v.open+" offen von "+v.total+"'>" +
+    "<i style='width:"+(v.taken/vt*100)+"%;background:#16a34a'></i><i style='width:"+(v.planned/vt*100)+"%;background:#86efac'></i>" +
+    (v.open<0?"":"") + "</div>";
+  return "<div class='az-person"+(act?"":" inactive")+"' onclick=\"azOpenDetail('"+azEsc(p.key)+"')\">" +
+    "<div class='az-p-top'>"+azAvatar(p.name)+"<div style='min-width:0;flex:1'><div class='az-p-name'>"+azEsc(azDisplayName(p.name))+"</div>" +
+    "<div class='az-p-meta'>Lehrjahr "+azEsc(p.lehrjahr||"–")+(p.klasse?" · "+azEsc(p.klasse):"")+"</div></div>" +
+    "<div style='display:flex;flex-direction:column;align-items:flex-end;gap:4px'>"+status+(todayCode?"<span title='heute'>"+azCodeHtml(todayCode)+"</span>":"")+"</div></div>" +
+    "<div class='az-strip'>"+strip+"</div>" +
+    "<div class='az-mini'><div><b>"+c.cats.tour+"</b><span>Tour</span></div><div><b>"+c.cats.schule+"</b><span>Schule</span></div><div><b>"+c.cats.fahrschule+"</b><span>Fahrsch.</span></div><div><b style='color:"+(c.cats.krank>=15?"#dc2626":"#0f172a")+"'>"+c.cats.krank+"</b><span>Krank</span></div><div><b>"+c.cats.lager+"</b><span>Lager</span></div></div>" +
+    "<div><div class='az-p-foot' style='margin-bottom:4px'><span>Urlaub "+v.taken+" + "+v.planned+" geplant / "+azFmtNum(v.total)+"</span><span style='color:"+(v.open<0?"#dc2626":"#15803d")+";font-weight:900'>"+(v.open<0?"überplant ":"offen ")+azFmtNum(v.open)+"</span></div>"+bar+"</div>" +
+    "<div class='az-p-foot'><span>&#128273; Chip "+(ex.chip?azEsc(ex.chip):"<i style='color:#cbd5e1'>fehlt</i>")+"</span>" +
+    (ex.tel?"<a href='tel:"+azEsc(ex.tel)+"' onclick='event.stopPropagation()'>&#128222; "+azEsc(ex.tel)+"</a>":"<span style='color:#cbd5e1'>&#128222; keine Nr.</span>")+"</div></div>";
+}
+
+// ── Heute & Woche ────────────────────────────────────────────────────────────
+function azMonday(iso){ var d = azParse(iso), w = d.getDay(); return azAddDays(iso, w===0 ? -6 : 1-w); }
+function azWeekNav(n){ AZ.weekStart = azAddDays(AZ.weekStart, 7*n); azRender(); }
+function azWeekToday(){ AZ.weekStart = ""; azRender(); }
+function azIsoWeek(iso){ var d = azParse(iso); d.setDate(d.getDate()+3-((d.getDay()+6)%7)); var w1 = new Date(d.getFullYear(),0,4); return 1+Math.round(((d-w1)/86400000-3+((w1.getDay()+6)%7))/7); }
+function azRenderWeek(){
+  if(!AZ.weekStart) AZ.weekStart = azMonday(azRefDate());
+  var people = azPeople(), days = [];
+  for(var i=0;i<7;i++) days.push(azAddDays(AZ.weekStart, i));
+  var today = azToday();
+  var html = "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#128197; KW " + azIsoWeek(AZ.weekStart) + " · " + azFmt(days[0],false) + " – " + azFmt(days[6]) +
+    " <span style='margin-left:auto;display:flex;gap:6px'><button class='az-btn' onclick='azWeekNav(-1)'>&#9664; Woche</button><button class='az-btn' onclick='azWeekToday()'>Aktuelle Woche</button><button class='az-btn' onclick='azWeekNav(1)'>Woche &#9654;</button></span></div>";
+  html += "<div class='az-table-wrap'><table class='az-cal' style='width:100%'><thead><tr><th class='nm'>Azubi</th>" + days.map(function(d){
+    return "<th class='"+(azIsWeekend(d)?"we ":"")+(d===today?"today":"")+"' style='min-width:84px'>"+AZ_WD[azParse(d).getDay()]+"<br>"+azFmt(d,false)+"</th>";
+  }).join("") + "</tr></thead><tbody>";
+  people.forEach(function(p){
+    html += "<tr><td class='nm' onclick=\"azOpenDetail('"+azEsc(p.key)+"')\">"+azEsc(azDisplayName(p.name))+" <span style='color:#94a3b8;font-weight:700;font-size:10px'>"+azEsc(p.klasse||"")+"</span></td>" + days.map(function(d){
+      var code = p.days[d];
+      return "<td class='c"+(azIsWeekend(d)&&!code?" we":"")+(d===today?" today":"")+"' style='"+(code?"background:"+azColor(code)+";":"")+"height:30px' title='"+azEsc(code?azLegendText(code):"")+"'>"+(code?azEsc(code)+" <span style='font-weight:700;opacity:.9;font-size:9px'>"+azEsc(azLegendText(code).split(/[ \/]/)[0])+"</span>":"")+"</td>";
+    }).join("") + "</tr>";
+  });
+  // Tagessummen
+  AZ_CATS.forEach(function(c){
+    var any = false, cells = days.map(function(d){ var n = people.filter(function(p){ var code = p.days[d]; return code && azCat(code).key === c.key; }).length; if(n) any = true; return "<td class='sum'>"+(n||"")+"</td>"; }).join("");
+    if(any) html += "<tr><td class='nm' style='cursor:default;color:"+c.color+"'>Σ "+azEsc(c.label)+"</td>"+cells+"</tr>";
+  });
+  html += "</tbody></table></div></div></div>";
+  return html;
+}
+
+// ── Kalender (Monat) ─────────────────────────────────────────────────────────
+function azSetMonth(m){ AZ.month = +m; azRender(); }
+function azRenderCalendar(){
+  var ref = azRefDate();
+  if(AZ.month < 0) AZ.month = azParse(ref).getMonth();
+  var people = azPeople(), y = AZ.year, m = AZ.month, today = azToday();
+  var nDays = new Date(y, m+1, 0).getDate(), days = [];
+  for(var i=1;i<=nDays;i++) days.push(azIso(new Date(y, m, i)));
+  var html = "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#128467; " + AZ_MONTHS_LONG[m] + " " + y +
+    " <span style='margin-left:auto;display:flex;gap:4px;flex-wrap:wrap'>" + AZ_MONTHS.map(function(lbl,i){ return "<button class='az-btn' style='padding:5px 9px;"+(i===m?"background:#0f766e;color:#fff;border-color:#0f766e":"")+"' onclick='azSetMonth("+i+")'>"+lbl+"</button>"; }).join("") + "</span></div>";
+  html += "<div class='az-table-wrap'><table class='az-cal'><thead><tr><th class='nm'>Azubi</th>" + days.map(function(d){
+    var dt = azParse(d);
+    return "<th class='"+(azIsWeekend(d)?"we ":"")+(d===today?"today":"")+"'>"+AZ_WD[dt.getDay()]+"<br>"+dt.getDate()+"</th>";
+  }).join("") + "<th>Tour</th><th>BS</th><th>F</th><th>U</th><th>K</th></tr></thead><tbody>";
+  var ref2 = azRefDate();
+  people.forEach(function(p){
+    var act = azIsActive(p, ref2);
+    var c = azCounts(p, days[0], days[days.length-1]).cats;
+    html += "<tr class='"+(act?"":"inactive")+"'><td class='nm' onclick=\"azOpenDetail('"+azEsc(p.key)+"')\" title='"+azEsc(p.name)+"'>"+azEsc(azDisplayName(p.name))+"</td>" + days.map(function(d){
+      var code = p.days[d], note = (p.notes||[]).filter(function(n){ return n.d===d; })[0];
+      var t = AZ_WD[azParse(d).getDay()]+" "+azFmt(d)+": "+(code?code+" – "+azLegendText(code):"–")+(note?" · "+note.t:"");
+      return "<td class='c"+(azIsWeekend(d)&&!code?" we":"")+(d===today?" today":"")+"' style='"+(code?"background:"+azColor(code):"")+(note?";box-shadow:inset 0 -3px 0 #f59e0b":"")+"' title='"+azEsc(t)+"'>"+(code?azEsc(code):(note?"!":""))+"</td>";
+    }).join("") + "<td class='sum'>"+c.tour+"</td><td class='sum'>"+c.schule+"</td><td class='sum'>"+c.fahrschule+"</td><td class='sum'>"+c.urlaub+"</td><td class='sum'>"+c.krank+"</td></tr>";
+  });
+  html += "</tbody></table></div>";
+  var yo = azYearObj(y);
+  var ev = (yo && yo.events || []).filter(function(e){ return azParse(e.d).getMonth() === m; });
+  if(ev.length) html += "<div style='margin-top:10px' class='az-chips'>" + ev.map(function(e){ return "<span class='az-chip' style='background:#fffbeb;border-color:#fde68a'>&#128204; "+azFmt(e.d,false)+" "+azEsc(e.t)+"</span>"; }).join("") + "</div>";
+  html += "<div style='margin-top:12px'>" + azLegendHtml() + "</div></div></div>";
+  return html;
+}
+function azUsedCodes(){
+  var used = {}; ((AZUBI_DATA && AZUBI_DATA.years) || []).forEach(function(y){ y.people.forEach(function(p){ Object.keys(p.days).forEach(function(d){ used[p.days[d]] = (used[p.days[d]]||0)+1; }); }); });
+  return used;
+}
+function azLegendHtml(){
+  var used = azUsedCodes();
+  return "<div class='az-legend'>" + Object.keys(used).sort(function(a,b){ return AZ_CATS.indexOf(azCat(a)) - AZ_CATS.indexOf(azCat(b)) || a.localeCompare(b); }).map(function(code){
+    return "<span>"+azCodeHtml(code)+" "+azEsc(azLegendText(code))+"</span>";
+  }).join("") + "</div>";
+}
+
+// ── Auswertung ───────────────────────────────────────────────────────────────
+function azSetEval(m){ AZ.evalMode = m; azRender(); }
+function azSortBy(k){ if(AZ.sort.key === k) AZ.sort.dir *= -1; else { AZ.sort.key = k; AZ.sort.dir = (k==="name"||k==="klasse"||k==="lj") ? 1 : -1; } azRender(); }
+function azEvalRows(){
+  var to = AZ.evalMode === "today" ? azRefDate() : null, ref = azRefDate();
+  return azPeople().map(function(p){
+    var c = azCounts(p, null, to).cats, work = azWorkDays(c);
+    return { p: p, name: azDisplayName(p.name), lj: String(p.lehrjahr||""), klasse: String(p.klasse||""), active: azIsActive(p, ref),
+      tour: c.tour, schule: c.schule, fahrschule: c.fahrschule, lager: c.lager, pruefung: c.pruefung, schulung: c.schulung,
+      urlaub: c.urlaub, krank: c.krank, ausgleich: c.ausgleich, work: work,
+      tourq: azPct(c.tour, work), krankq: azPct(c.krank, work + c.krank) };
+  });
+}
+function azRenderEval(){
+  var rows = azEvalRows(), s = AZ.sort;
+  rows.sort(function(a,b){ var x=a[s.key], y=b[s.key]; if(typeof x==="string") return x.localeCompare(y)*s.dir; return (x-y)*s.dir; });
+  var cols = [["name","Azubi"],["lj","LJ"],["klasse","Klasse"],["tour","Tour"],["schule","Berufsschule"],["fahrschule","Fahrschule"],["lager","Lager/Hof"],["pruefung","Prüfung"],["schulung","Schulung"],["work","Einsatztage"],["urlaub","Urlaub"],["krank","Krank"],["ausgleich","Ausgleich"],["tourq","Tour-Quote"],["krankq","Krank-Quote"]];
+  var html = "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#128202; Auswertung " + AZ.year +
+    " <span style='margin-left:auto;display:flex;gap:6px'><button class='az-btn' style='"+(AZ.evalMode==="today"?"background:#0f766e;color:#fff;border-color:#0f766e":"")+"' onclick=\"azSetEval('today')\">bis Stichtag " + azFmt(azRefDate()) + "</button><button class='az-btn' style='"+(AZ.evalMode==="year"?"background:#0f766e;color:#fff;border-color:#0f766e":"")+"' onclick=\"azSetEval('year')\">ganzes Jahr inkl. Planung</button></span></div>";
+  html += "<div class='az-table-wrap'><table class='az-table'><thead><tr>" + cols.map(function(c){
+    var arrow = s.key===c[0] ? (s.dir>0?" &#9650;":" &#9660;") : "";
+    return "<th class='"+(c[0]==="name"||c[0]==="klasse"||c[0]==="lj"?"":"num")+"' onclick=\"azSortBy('"+c[0]+"')\">"+c[1]+arrow+"</th>";
+  }).join("") + "</tr></thead><tbody>";
+  var tot = {}; cols.forEach(function(c){ tot[c[0]] = 0; });
+  rows.forEach(function(r){
+    html += "<tr class='"+(r.active?"":"inactive")+"'>" + cols.map(function(c){
+      var v = r[c[0]];
+      if(c[0]==="name") return "<td class='name' onclick=\"azOpenDetail('"+azEsc(r.p.key)+"')\">"+azEsc(v)+"</td>";
+      if(c[0]==="lj"||c[0]==="klasse") return "<td>"+azEsc(v||"–")+"</td>";
+      tot[c[0]] += v;
+      if(c[0]==="tourq"||c[0]==="krankq"){
+        var col = c[0]==="krankq" ? (v>=10?"#dc2626":v>=5?"#d97706":"#15803d") : "#1d4ed8";
+        return "<td class='num'><span style='display:inline-block;width:46px;height:6px;background:#eef2f6;border-radius:9px;vertical-align:middle;margin-right:6px;overflow:hidden'><i style='display:block;height:100%;width:"+Math.min(100,v)+"%;background:"+col+"'></i></span><b style='color:"+col+"'>"+azFmtNum(v)+" %</b></td>";
+      }
+      return "<td class='num'>"+(v||"<span style='color:#cbd5e1'>0</span>")+"</td>";
+    }).join("") + "</tr>";
+  });
+  if(rows.length){
+    html += "<tr>" + cols.map(function(c){
+      if(c[0]==="name") return "<td style='font-weight:950;background:#f1f5f9'>Summe ("+rows.length+")</td>";
+      if(c[0]==="lj"||c[0]==="klasse") return "<td style='background:#f1f5f9'></td>";
+      if(c[0]==="tourq") { var w=0,t=0; rows.forEach(function(r){ w+=r.work; t+=r.tour; }); return "<td class='num' style='font-weight:950;background:#f1f5f9'>"+azFmtNum(azPct(t,w))+" %</td>"; }
+      if(c[0]==="krankq") { var w2=0,k=0; rows.forEach(function(r){ w2+=r.work+r.krank; k+=r.krank; }); return "<td class='num' style='font-weight:950;background:#f1f5f9'>"+azFmtNum(azPct(k,w2))+" %</td>"; }
+      return "<td class='num' style='font-weight:950;background:#f1f5f9'>"+tot[c[0]]+"</td>";
+    }).join("") + "</tr>";
+  }
+  html += "</tbody></table></div><div class='az-kpi-note' style='margin-top:6px'>Einsatztage = Tour + Berufsschule + Fahrschule + Lager/Hof + Prüfung + Schulung + Sonstiges · Krank-Quote = Krank ÷ (Einsatztage + Krank)</div></div></div>";
+
+  // Monatsverlauf
+  var months = []; for(var i=0;i<12;i++){ var o = {}; AZ_CATS.forEach(function(c){ o[c.key]=0; }); months.push(o); }
+  var to = AZ.evalMode === "today" ? azRefDate() : null;
+  azPeople().forEach(function(p){ Object.keys(p.days).forEach(function(d){ if(to && d > to) return; months[+d.slice(5,7)-1][azCat(p.days[d]).key]++; }); });
+  var max = 1; months.forEach(function(o){ var s2=0; AZ_CATS.forEach(function(c){ if(c.key!=="feiertag") s2+=o[c.key]; }); if(s2>max) max=s2; });
+  html += "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#128200; Monatsverlauf (Personentage je Kategorie)</div><div class='az-month-chart'>" + months.map(function(o,i){
+    var total = 0; AZ_CATS.forEach(function(c){ if(c.key!=="feiertag") total += o[c.key]; });
+    var tip = AZ_MONTHS_LONG[i] + ": " + AZ_CATS.filter(function(c){ return o[c.key] && c.key!=="feiertag"; }).map(function(c){ return c.label+" "+o[c.key]; }).join(", ");
+    return "<div class='az-month-col' title='"+azEsc(tip)+"'><div class='az-month-lbl' style='color:#0f172a'>"+(total||"")+"</div><div class='az-month-stack' style='flex:none;height:"+Math.round(total/max*150)+"px;margin-top:auto'>" +
+      AZ_CATS.filter(function(c){ return c.key!=="feiertag"; }).map(function(c){ return o[c.key] ? "<i style='height:"+(o[c.key]/Math.max(total,1)*100)+"%;background:"+c.color+"'></i>" : ""; }).join("") +
+      "</div><div class='az-month-lbl'>"+AZ_MONTHS[i]+"</div></div>";
+  }).join("") + "</div><div class='az-legend' style='margin-top:10px'>" + AZ_CATS.filter(function(c){ return c.key!=="feiertag"; }).map(function(c){ return "<span><i style='width:11px;height:11px;border-radius:3px;background:"+c.color+";display:inline-block'></i>"+c.label+"</span>"; }).join("") + "</div></div></div>";
+  return html;
+}
+
+// ── Urlaub ───────────────────────────────────────────────────────────────────
+function azRenderVacation(){
+  var people = azPeople(), ref = azRefDate();
+  var html = "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#127796; Urlaubsübersicht " + AZ.year + " <small>genommen bis " + azFmt(ref) + ", danach geplant</small></div>";
+  html += "<div class='az-table-wrap'><table class='az-table'><thead><tr><th>Azubi</th><th>Klasse</th><th class='num'>Anspruch</th><th class='num'>Rest Vorjahr</th><th class='num'>Gesamt</th><th class='num'>genommen</th><th class='num'>geplant</th><th class='num'>offen</th><th style='min-width:180px'>Verteilung</th><th>Geplante Zeiträume</th></tr></thead><tbody>";
+  people.forEach(function(p){
+    var v = azVacation(p), act = azIsActive(p, ref), vt = Math.max(v.total, v.taken + v.planned, 1);
+    var col = v.open < 0 ? "#dc2626" : v.open > 5 ? "#d97706" : "#15803d";
+    html += "<tr class='"+(act?"":"inactive")+"'><td class='name' onclick=\"azOpenDetail('"+azEsc(p.key)+"')\">"+azEsc(azDisplayName(p.name))+"</td><td>"+azEsc(p.klasse||"–")+"</td>" +
+      "<td class='num'>"+azFmtNum(v.anspruch)+"</td><td class='num'>"+azFmtNum(v.rest)+"</td><td class='num'><b>"+azFmtNum(v.total)+"</b></td><td class='num'>"+v.taken+"</td><td class='num'>"+v.planned+"</td>" +
+      "<td class='num'><b style='color:"+col+"'>"+azFmtNum(v.open)+"</b></td>" +
+      "<td><div class='az-bar' style='height:10px'><i style='width:"+(v.taken/vt*100)+"%;background:#16a34a'></i><i style='width:"+(v.planned/vt*100)+"%;background:#86efac'></i>"+(v.open<0?"<i style='width:"+(-v.open/vt*100)+"%;background:#dc2626'></i>":"")+"</div></td>" +
+      "<td style='white-space:normal'><div class='az-chips' style='margin:0'>"+(v.ranges.map(function(r){ return "<span class='az-chip'>"+azRangeText(r)+" ("+r.n+")</span>"; }).join("") || "<span style='color:#cbd5e1'>–</span>")+"</div></td></tr>";
+  });
+  html += "</tbody></table></div><div class='az-legend' style='margin-top:8px'><span><i style='width:11px;height:11px;background:#16a34a;display:inline-block;border-radius:3px'></i>genommen</span><span><i style='width:11px;height:11px;background:#86efac;display:inline-block;border-radius:3px'></i>geplant</span><span><i style='width:11px;height:11px;background:#dc2626;display:inline-block;border-radius:3px'></i>überplant</span><span style='color:#d97706'>orange = mehr als 5 Tage offen</span></div></div></div>";
+  return html;
+}
+
+// ── Termine & Prüfungen ──────────────────────────────────────────────────────
+function azRenderDates(){
+  var today = azToday(), items = [];
+  var ys = (AZUBI_DATA && AZUBI_DATA.years) || [];
+  // Berufsschulblöcke je Klasse (aus allen Jahresblättern)
+  var bs = {};
+  ys.forEach(function(y){ y.people.forEach(function(p){
+    if(!p.klasse) return;
+    var k = p.klasse; bs[k] = bs[k] || {};
+    Object.keys(p.days).forEach(function(d){ if(p.days[d]==="BS") bs[k][d] = (bs[k][d]||0)+1; });
+  }); });
+  Object.keys(bs).forEach(function(k){
+    azRanges(Object.keys(bs[k]).sort()).forEach(function(r){ if(r.n >= 3) items.push({ d: r.from, to: r.to, kind: "bs", title: "Berufsschule " + k, text: r.n + " Schultage", who: [] }); });
+  });
+  // Prüfungen / Prüfungsvorbereitung je Person
+  ys.forEach(function(y){ y.people.forEach(function(p){
+    ["AP","ZP","PV","P"].forEach(function(code){
+      var ds = Object.keys(p.days).filter(function(d){ return p.days[d]===code; }).sort();
+      azRanges(ds).forEach(function(r){ items.push({ d: r.from, to: r.to, kind: code, title: azLegendText(code), text: "", who: [azDisplayName(p.name)] }); });
+    });
+    (p.notes||[]).forEach(function(n){ items.push({ d: n.d, to: n.d, kind: "note", title: n.t, text: "", who: [azDisplayName(p.name)] }); });
+  }); (y.events||[]).forEach(function(e){ items.push({ d: e.d, to: e.d, kind: "event", title: e.t, text: "Kalenderhinweis", who: [] }); }); });
+  // gleiche Termine zusammenfassen
+  var merged = {};
+  items.forEach(function(it){ var k = it.kind+"|"+it.d+"|"+it.to+"|"+it.title; if(merged[k]) merged[k].who = merged[k].who.concat(it.who); else merged[k] = it; });
+  items = Object.keys(merged).map(function(k){ return merged[k]; }).sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
+  var icon = { bs: "&#127979;", AP: "&#127942;", ZP: "&#128221;", PV: "&#128218;", P: "&#128221;", note: "&#128100;", event: "&#128204;" };
+  var color = { bs: "#7c3aed", AP: "#db2777", ZP: "#db2777", PV: "#be185d", P: "#db2777", note: "#d97706", event: "#0f766e" };
+  var upcoming = items.filter(function(it){ return it.to >= today; }), past = items.filter(function(it){ return it.to < today; }).reverse().slice(0, 25);
+  function render(list, cls){
+    return "<div class='az-list'>" + list.map(function(it){
+      var days = Math.round((azParse(it.d) - azParse(today)) / 86400000);
+      var rel = it.d <= today && it.to >= today ? "läuft" : days === 1 ? "morgen" : days === -1 ? "gestern" : days > 0 ? "in " + days + " Tagen" : "vor " + (-days) + " Tagen";
+      return "<div class='az-item "+cls+"' style='border-left:4px solid "+(color[it.kind]||"#64748b")+"'><div class='az-date'>"+(it.d===it.to?azFmt(it.d):azFmt(it.d,false)+" –<br>"+azFmt(it.to))+"<small>"+rel+"</small></div>" +
+        "<div class='az-item-body'><b>"+(icon[it.kind]||"")+" "+azEsc(it.title)+"</b>"+(it.text?" · "+azEsc(it.text):"") +
+        (it.who.length?"<div class='az-chips'>"+it.who.map(function(w){ return "<span class='az-chip'>"+azEsc(w)+"</span>"; }).join("")+"</div>":"") + "</div></div>";
+    }).join("") + "</div>";
+  }
+  var html = "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#128198; Kommende Termine <small>Berufsschulblöcke je Klasse, Prüfungen, Ein-/Austritte, Kalenderhinweise – über alle Jahresblätter</small></div>" +
+    (upcoming.length ? render(upcoming.slice(0, 80), "") : "<div class='az-empty'>Keine kommenden Termine.</div>") + "</div></div>";
+  if(past.length) html += "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#8634; Zuletzt vergangen</div>" + render(past, "past") + "</div></div>";
+  return html;
+}
+
+// ── Infos & Kontakte ─────────────────────────────────────────────────────────
+function azLinkify(t){
+  var s = azEsc(t);
+  s = s.replace(/([\w.+-]+@[\w-]+\.[\w.-]+)/g, "<a href='mailto:$1'>$1</a>");
+  s = s.replace(/(\b0\d[\d\s\/-]{6,}\d)/g, function(m){ return "<a href='tel:"+m.replace(/[^\d]/g,"")+"'>"+m+"</a>"; });
+  return s;
+}
+function azRenderInfo(){
+  var info = (AZUBI_DATA && AZUBI_DATA.info) || [];
+  var html = "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#8505;&#65039; Allgemeine Informationen</div><div class='az-info-grid'>" +
+    (info.length ? info.map(function(sec){
+      return "<div class='az-info'><h4>"+azEsc(sec.title)+"</h4><ul>"+sec.items.map(function(it){
+        var st = /gekündigt/i.test(it) ? " style='color:#b91c1c'" : /angestellt/i.test(it) ? " style='color:#15803d'" : "";
+        return "<li"+st+">"+azLinkify(it)+"</li>";
+      }).join("")+"</ul></div>";
+    }).join("") : "<div class='az-empty'>Kein Blatt „allg. Informationen“ gefunden.</div>") + "</div></div></div>";
+  // Kontaktliste
+  var y = azYearObj(AZ.year), ref = azRefDate();
+  var list = (y ? y.people : []).map(function(p){ var ex = azEnrich(p); return { p: p, chip: ex.chip, tel: ex.tel, act: azIsActive(p, ref) }; });
+  html += "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#128222; Telefonliste Ausbildung &amp; Chipnummern " + AZ.year + "</div><div class='az-table-wrap'><table class='az-table'><thead><tr><th>Azubi</th><th>Lehrjahr</th><th>Klasse</th><th>Telefon</th><th>Edeka-Chip</th><th>Status</th></tr></thead><tbody>" +
+    list.map(function(r){ var e = azExitAnywhere(r.p);
+      return "<tr class='"+(r.act?"":"inactive")+"'><td class='name' onclick=\"azOpenDetail('"+azEsc(r.p.key)+"')\">"+azEsc(azDisplayName(r.p.name))+"</td><td>"+azEsc(r.p.lehrjahr||"–")+"</td><td>"+azEsc(r.p.klasse||"–")+"</td>" +
+        "<td>"+(r.tel?"<a href='tel:"+azEsc(r.tel)+"' style='color:#0f766e;font-weight:850'>"+azEsc(r.tel)+"</a>":"<span style='color:#cbd5e1'>fehlt</span>")+"</td><td>"+(r.chip?azEsc(r.chip):"<span style='color:#cbd5e1'>fehlt</span>")+"</td>" +
+        "<td>"+(e?azEsc(e.t)+" "+azFmt(e.d):"aktiv")+"</td></tr>"; }).join("") + "</tbody></table></div></div></div>";
+  html += "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#128278; Legende der Kürzel</div>" + azLegendHtml() + "</div></div>";
+  return html;
+}
+
+// ── Hinweise / Datenqualität ─────────────────────────────────────────────────
+function azChecks(){
+  var out = [], y = azYearObj(AZ.year), ref = azRefDate();
+  if(!y) return out;
+  var lg = (AZUBI_DATA && AZUBI_DATA.legend) || {}, used = {};
+  y.people.forEach(function(p){ Object.keys(p.days).forEach(function(d){ var c = p.days[d]; if(!lg[c] && !AZ_DEFAULT_LEGEND[c]) (used[c] = used[c] || []).push(p.name); }); });
+  Object.keys(used).forEach(function(c){
+    var names = used[c].filter(function(v,i,a){ return a.indexOf(v)===i; });
+    out.push({ level: "warn", title: "Kürzel „" + c + "“ steht nicht in der Legende", text: used[c].length + "× verwendet bei " + names.map(azDisplayName).join(", ") });
+  });
+  y.people.forEach(function(p){
+    if(!azIsActive(p, ref)) return;
+    var v = azVacation(p);
+    if(v.open < 0) out.push({ level: "err", title: azDisplayName(p.name) + ": Urlaub überplant", text: "Gesamt " + azFmtNum(v.total) + ", genommen " + v.taken + ", geplant " + v.planned + " → " + azFmtNum(v.open) + " Tage" });
+    if(azNum(p.urlaub) === 0 && azNum(p.rest) > 0) out.push({ level: "warn", title: azDisplayName(p.name) + ": Urlaubsanspruch 0, Resturlaub " + azFmtNum(p.rest), text: "Vermutlich steht der Jahresanspruch in der Spalte „Resturlaub“." });
+    var c = azCounts(p, null, ref).cats;
+    if(c.krank >= 15) out.push({ level: "warn", title: azDisplayName(p.name) + ": " + c.krank + " Krankentage " + AZ.year, text: "bis " + azFmt(ref) });
+    var ex = azEnrich(p);
+    if(!ex.chip || !ex.tel) out.push({ level: "info", title: azDisplayName(p.name) + ": " + [!ex.chip?"Chipnummer":"", !ex.tel?"Telefonnummer":""].filter(Boolean).join(" und ") + " fehlt", text: "In den Blättern „Chipnummer“ / „Telefonliste“ nicht gefunden." });
+  });
+  (y.unnamed || []).forEach(function(u){ out.push({ level: "warn", title: "Zeile " + u.row + " ohne Namen", text: u.n + " Tageseinträge ohne Azubi-Namen – werden nicht ausgewertet." }); });
+  // Namensvarianten über Jahresblätter
+  var ys = (AZUBI_DATA && AZUBI_DATA.years) || [], byLast = {};
+  ys.forEach(function(yy){ yy.people.forEach(function(p){ var last = p.name.split(",")[0].trim().toLowerCase(); byLast[last] = byLast[last] || {}; byLast[last][p.name] = 1; }); });
+  Object.keys(byLast).forEach(function(l){ var n = Object.keys(byLast[l]); if(n.length > 1) out.push({ level: "info", title: "Unterschiedliche Schreibweise", text: n.join(" / ") }); });
+  if(!out.length) out.push({ level: "ok", title: "Keine Auffälligkeiten", text: "" });
+  return out;
+}
+function azRenderChecks(checks){
+  var order = { err: 0, warn: 1, info: 2, ok: 3 }, cls = { err: "az-err", warn: "az-warn", info: "", ok: "az-ok" }, ic = { err: "&#9940;", warn: "&#9888;&#65039;", info: "&#8505;&#65039;", ok: "&#9989;" };
+  checks = checks.slice().sort(function(a,b){ return order[a.level]-order[b.level]; });
+  return "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#9888;&#65039; Hinweise &amp; Datenqualität " + AZ.year + " <small>" + checks.length + " Einträge</small></div><div class='az-list'>" +
+    checks.map(function(c){ return "<div class='az-item "+cls[c.level]+"'><div class='az-item-body'><b>"+ic[c.level]+" "+azEsc(c.title)+"</b>"+(c.text?"<div style='margin-top:3px'>"+azEsc(c.text)+"</div>":"")+"</div></div>"; }).join("") + "</div></div></div>";
+}
+
+// ── Detailansicht ────────────────────────────────────────────────────────────
+function azFindPerson(key){
+  var y = azYearObj(AZ.year); if(!y) return null;
+  for(var i=0;i<y.people.length;i++) if(y.people[i].key === key) return y.people[i];
+  return null;
+}
+function azOpenDetail(key){
+  var p = azFindPerson(key); if(!p) return;
+  var ref = azRefDate(), today = azToday(), ex = azEnrich(p), exit = azExitAnywhere(p), v = azVacation(p);
+  var cAll = azCounts(p, null, null), cRef = azCounts(p, null, ref);
+  var html = "<div class='az-modal-head'>" + azAvatar(p.name) + "<div><div class='az-title' style='font-size:17px'>" + azEsc(azDisplayName(p.name)) + "</div><div class='az-sub'>Lehrjahr " + azEsc(p.lehrjahr||"–") + (p.klasse?" · "+azEsc(p.klasse):"") +
+    " · Chip " + (ex.chip?azEsc(ex.chip):"–") + " · " + (ex.tel?"<a href='tel:"+azEsc(ex.tel)+"' style='color:#0f766e'>"+azEsc(ex.tel)+"</a>":"keine Telefonnr.") + (exit?" · <b style='color:#b91c1c'>"+azEsc(exit.t)+" "+azFmt(exit.d)+"</b>":"") + "</div></div><button class='az-close' onclick='azCloseDetail()'>&#10005;</button></div>";
+  html += "<div class='az-kpis'>" + AZ_CATS.filter(function(c){ return cAll.cats[c.key]; }).map(function(c){
+    return "<div class='az-kpi' style='border-top:3px solid "+c.color+"'><div class='az-kpi-label'>"+c.label+"</div><div class='az-kpi-value'>"+cRef.cats[c.key]+"</div><div class='az-kpi-note'>"+cAll.cats[c.key]+" im ganzen Jahr</div></div>";
+  }).join("") + "<div class='az-kpi' style='border-top:3px solid #16a34a'><div class='az-kpi-label'>Urlaub offen</div><div class='az-kpi-value' style='color:"+(v.open<0?"#dc2626":"#15803d")+"'>"+azFmtNum(v.open)+"</div><div class='az-kpi-note'>von "+azFmtNum(v.total)+" · "+v.taken+" genommen · "+v.planned+" geplant</div></div></div>";
+  // Jahreskalender
+  html += "<div class='az-section'><div class='az-section-title'>&#128467; Jahreskalender " + AZ.year + "</div><div class='az-year'><div class='hd'></div>";
+  for(var d=1; d<=31; d++) html += "<div class='hd'>"+d+"</div>";
+  for(var m=0; m<12; m++){
+    html += "<div class='lbl'>"+AZ_MONTHS[m]+"</div>";
+    var nd = new Date(AZ.year, m+1, 0).getDate();
+    for(var dd=1; dd<=31; dd++){
+      if(dd > nd){ html += "<div class='na'></div>"; continue; }
+      var iso = azIso(new Date(AZ.year, m, dd)), code = p.days[iso];
+      var note = (p.notes||[]).filter(function(n){ return n.d===iso; })[0];
+      html += "<div class='"+(azIsWeekend(iso)&&!code?"we ":"")+(iso===today?"today":"")+"' style='"+(code?"background:"+azColor(code):"")+(note?";box-shadow:inset 0 -3px 0 #f59e0b":"")+"' title='"+azEsc(AZ_WD[azParse(iso).getDay()]+" "+azFmt(iso)+": "+(code?code+" – "+azLegendText(code):"–")+(note?" · "+note.t:""))+"'>"+(code?azEsc(code):"")+"</div>";
+    }
+  }
+  html += "</div><div style='margin-top:10px'>" + azLegendHtml() + "</div></div>";
+  // Kürzel-Tabelle
+  html += "<div class='az-section'><div class='az-section-title'>&#128203; Tage je Kürzel</div><div class='az-chips'>" + Object.keys(cAll.codes).sort(function(a,b){ return cAll.codes[b]-cAll.codes[a]; }).map(function(code){
+    return "<span class='az-chip'>"+azCodeHtml(code)+" "+azEsc(azLegendText(code))+": <b>"+(cRef.codes[code]||0)+"</b> bis Stichtag / "+cAll.codes[code]+" gesamt</span>";
+  }).join("") + "</div>";
+  if(v.ranges.length) html += "<div class='az-section-title' style='margin-top:14px'>&#127796; Geplanter Urlaub</div><div class='az-chips'>" + v.ranges.map(function(r){ return "<span class='az-chip'>"+azRangeText(r)+" ("+r.n+" Tage)</span>"; }).join("") + "</div>";
+  if((p.notes||[]).length) html += "<div class='az-section-title' style='margin-top:14px'>&#128204; Vermerke</div><div class='az-chips'>" + p.notes.map(function(n){ return "<span class='az-chip' style='background:#fffbeb;border-color:#fde68a'>"+azFmt(n.d)+": "+azEsc(n.t)+"</span>"; }).join("") + "</div>";
+  // andere Jahre
+  var other = ((AZUBI_DATA && AZUBI_DATA.years) || []).filter(function(y){ return y.year !== AZ.year; }).map(function(y){
+    var q = null; y.people.forEach(function(x){ if(x.key === p.key) q = x; }); if(!q) return "";
+    var c = azCounts(q, null, null).cats;
+    return "<span class='az-chip' style='cursor:pointer' onclick=\"azSetYear("+y.year+");azOpenDetail('"+azEsc(q.key)+"')\">"+y.year+": LJ "+azEsc(q.lehrjahr||"–")+" · Tour "+c.tour+" · BS "+c.schule+" · F "+c.fahrschule+" · U "+c.urlaub+" · K "+c.krank+"</span>";
+  }).filter(Boolean);
+  if(other.length) html += "<div class='az-section-title' style='margin-top:14px'>&#128197; Andere Jahre</div><div class='az-chips'>" + other.join("") + "</div>";
+  html += "</div>";
+  document.getElementById("az-modal-box").innerHTML = html;
+  document.getElementById("az-modal").classList.add("open");
+}
+function azCloseDetail(){ var m = document.getElementById("az-modal"); if(m) m.classList.remove("open"); }
+document.addEventListener("keydown", function(e){ if(e.key === "Escape") azCloseDetail(); });
+
+// ── Excel-Export ─────────────────────────────────────────────────────────────
+function azExportExcel(){
+  var lib = window.XLSXStyle || window.XLSX;
+  if(!lib || !lib.utils){ alert("Excel-Bibliothek nicht geladen. Bitte die Seite neu laden."); return; }
+  var y = azYearObj(AZ.year); if(!y){ alert("Keine Azubi-Daten vorhanden."); return; }
+  var people = azPeople(), ref = azRefDate();
+  var hs = { font:{bold:true,color:{rgb:"FFFFFF"}}, fill:{fgColor:{rgb:"0F766E"}}, alignment:{vertical:"center",horizontal:"center"} };
+  function styleHead(ws, n){ for(var c=0;c<n;c++){ var a = lib.utils.encode_cell({r:0,c:c}); if(ws[a]) ws[a].s = hs; } }
+  var wb = lib.utils.book_new();
+  // Auswertung
+  var mode = AZ.evalMode; AZ.evalMode = "today";
+  var rowsT = azEvalRows(); AZ.evalMode = "year"; var rowsY = azEvalRows(); AZ.evalMode = mode;
+  var a1 = [["Azubi","Lehrjahr","Klasse","Status","Tour","Berufsschule","Fahrschule","Lager/Hof","Prüfung","Schulung","Einsatztage","Urlaub","Krank","Ausgleich","Tour-Quote %","Krank-Quote %","Tour (Jahr inkl. Planung)","Urlaub (Jahr inkl. Planung)"]];
+  rowsT.forEach(function(r, i){ var e = azExitAnywhere(r.p);
+    a1.push([r.name, r.lj, r.klasse, e ? e.t+" "+azFmt(e.d) : "aktiv", r.tour, r.schule, r.fahrschule, r.lager, r.pruefung, r.schulung, r.work, r.urlaub, r.krank, r.ausgleich, r.tourq, r.krankq, rowsY[i].tour, rowsY[i].urlaub]); });
+  var ws1 = lib.utils.aoa_to_sheet(a1); ws1["!cols"] = [{wch:26},{wch:10},{wch:11},{wch:24}].concat(a1[0].slice(4).map(function(){ return {wch:12}; }));
+  styleHead(ws1, a1[0].length); lib.utils.book_append_sheet(wb, ws1, "Auswertung bis " + azFmt(ref).slice(0,5));
+  // Urlaub
+  var a2 = [["Azubi","Klasse","Anspruch","Rest Vorjahr","Gesamt","genommen","geplant","offen","geplante Zeiträume"]];
+  people.forEach(function(p){ var v = azVacation(p); a2.push([azDisplayName(p.name), p.klasse, v.anspruch, v.rest, v.total, v.taken, v.planned, v.open, v.ranges.map(azRangeText).join(", ")]); });
+  var ws2 = lib.utils.aoa_to_sheet(a2); ws2["!cols"] = [{wch:26},{wch:11},{wch:10},{wch:12},{wch:9},{wch:10},{wch:9},{wch:8},{wch:60}];
+  styleHead(ws2, a2[0].length); lib.utils.book_append_sheet(wb, ws2, "Urlaub");
+  // Kalender (Personen x Tage)
+  var days = []; for(var d = azIso(new Date(AZ.year,0,1)); d.slice(0,4) === String(AZ.year); d = azAddDays(d,1)) days.push(d);
+  var a3 = [["Azubi","Klasse"].concat(days.map(function(x){ return azFmt(x,false); }))];
+  people.forEach(function(p){ a3.push([azDisplayName(p.name), p.klasse].concat(days.map(function(x){ return p.days[x] || ""; }))); });
+  var ws3 = lib.utils.aoa_to_sheet(a3); ws3["!cols"] = [{wch:26},{wch:10}].concat(days.map(function(){ return {wch:5}; }));
+  styleHead(ws3, 2);
+  for(var r=1; r<a3.length; r++) for(var c=2; c<a3[r].length; c++){
+    var code = a3[r][c]; if(!code) continue;
+    var addr = lib.utils.encode_cell({r:r,c:c}); if(!ws3[addr]) continue;
+    ws3[addr].s = { fill:{fgColor:{rgb:azColor(code).replace("#","").toUpperCase()}}, font:{bold:true,color:{rgb:"FFFFFF"}}, alignment:{horizontal:"center"} };
+  }
+  lib.utils.book_append_sheet(wb, ws3, "Kalender " + AZ.year);
+  // Kontakte
+  var a4 = [["Azubi","Lehrjahr","Klasse","Telefon","Chipnummer"]];
+  y.people.forEach(function(p){ var ex = azEnrich(p); a4.push([azDisplayName(p.name), p.lehrjahr, p.klasse, ex.tel, ex.chip]); });
+  var ws4 = lib.utils.aoa_to_sheet(a4); ws4["!cols"] = [{wch:26},{wch:10},{wch:11},{wch:16},{wch:12}];
+  styleHead(ws4, a4[0].length); lib.utils.book_append_sheet(wb, ws4, "Kontakte");
+  lib.writeFile(wb, "Azubis_BKF_" + AZ.year + "_Stand_" + azToday() + ".xlsx");
+}
+
+// ── Navigation einhängen ─────────────────────────────────────────────────────
+(function(){
+  if(typeof showArea !== "function") return;
+  var _azOrigShowArea = showArea;
+  showArea = function(s){
+    _azOrigShowArea(s);
+    var panel = document.getElementById("panel-azubi");
+    if(panel) panel.style.display = (s === "azubi") ? "flex" : "none";
+    var btn = document.getElementById("btn-azubi");
+    if(btn) btn.className = "nav-btn" + (s === "azubi" ? " active" : "");
+    if(s === "azubi") azOpen(); else azCloseDetail();
+  };
+  window.showArea = showArea;
+})();
+"""
 
 
 def _hupa_panels_html() -> str:
@@ -35720,7 +36533,7 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
   overflow:visible;
   scrollbar-width:none;
 }}
-.nav-rows{{flex:1;min-width:0;display:grid;grid-template-columns:repeat(7,minmax(0,160px));gap:6px;justify-content:center;align-content:center}}
+.nav-rows{{flex:1;min-width:0;display:grid;grid-template-columns:repeat(8,minmax(0,150px));gap:6px;justify-content:center;align-content:center}}
 .nav-row{{display:contents}}
 .nav-rows .nav-dd{{width:100%}}
 .nav-rows .nav-btn,.nav-rows .nav-dd-btn{{width:100%;justify-content:center;text-align:center;padding:7px 6px;font-size:11.5px;display:flex;align-items:center;gap:4px}}
@@ -35906,6 +36719,7 @@ iframe.active{{display:block}}
   <button class="nav-btn" id="btn-gk" onclick="showArea('gk')">&#127970; Gro&#223;kunden</button>
   <button class="nav-btn" id="btn-hupa" onclick="showArea('hupa')">&#128230; HuPa</button>
   <button class="nav-btn" id="btn-tel" onclick="showArea('tel')">&#128222; Telefonliste</button>
+  <button class="nav-btn" id="btn-azubi" onclick="showArea('azubi')">&#127891; Azubis BKF</button>
   <div class="nav-dd" id="dd-sped">
     <button class="nav-dd-btn" id="btn-sped" onclick="ddToggle('sped',event)">
       &#128666; Spediteure <span class="dd-arrow">&#9660;</span>
@@ -37105,6 +37919,7 @@ function loadEmbeddedData() {{
     TANK_DATA = data.tanken || [];
     HUPA_DATA = data.hupa || [];
     TEL_DATA = data.telefon || [];
+    AZUBI_DATA = data.azubis || {{}};
     SAM_DATA = data.samstag || [];
     FA_DATA = data.fahrer || [];
     FAHRERBEWERTUNG_DATA = data.fahrerbewertung || {{profile:"",event_types:[],g_months:{{}},g_ev:{{}},drivers:[]}};
@@ -41042,7 +41857,7 @@ function ddSelectFaMode(mode) {{
 </html>"""
 
 
-def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", hupa_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None, tourzuordnung_html: str = "") -> str:
+def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", hupa_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None, tourzuordnung_html: str = "", azubi_json: str = "{}") -> str:
     _combine_started = time.perf_counter()
     try:
         _logo_up = st.session_state.get("g_logo")
@@ -41063,8 +41878,8 @@ def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa
     fw_graph_js_code = js_parts['fw_graph']
     tank_panels_html = _tank_panels_html()
     tank_js_code = _tank_dashboard_js()
-    hupa_panels_html = _hupa_panels_html()
-    hupa_js_code = _hupa_dashboard_js()
+    hupa_panels_html = _hupa_panels_html() + _azubi_panels_html()
+    hupa_js_code = _hupa_dashboard_js() + _azubi_dashboard_js()
     tourzuordnung_panel_html = _tourzuordnung_panel_html(tourzuordnung_html)
     verstoss_js_code = js_parts['verstoss']
     knapp_js_code = js_parts['knapp']
@@ -41124,6 +41939,7 @@ def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa
         timerec_json=timerec_json,
         spediteure_json=spediteure_json,
         versp_abfahrt_json=versp_abfahrt_json,
+        azubi_json=azubi_json,
     )
 
 
@@ -41883,6 +42699,207 @@ def generate_drittkunden_excel(drittkunden_json_str: str) -> bytes:
         for i,w in enumerate(widths,1): ws.column_dimensions[get_column_letter(i)].width=w
         ws.freeze_panes="A3"
     buf=_io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+
+def _azubi_name_key(name) -> str:
+    """Normalisierter Schlüssel für Namensabgleich zwischen den Blättern."""
+    import re as _re
+    s = str(name or "").lower()
+    s = s.replace("ß", "ss").replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+    s = _re.sub(r"[^a-z ]+", " ", s)
+    s = s.replace("mm", "m")
+    toks = sorted(set(t for t in s.split() if t))
+    return " ".join(toks)
+
+
+def parse_azubi_excel(up) -> str:
+    """Liest die Anwesenheitsliste Azubi BKF (Blätter 'BKF JJJJ',
+    'allg. Informationen', 'Chipnummer', 'Telefonliste') und liefert JSON."""
+    import io as _io
+    import re as _re
+    import json as _json
+    import datetime as _dt
+    import openpyxl as _ox
+
+    raw = up.getvalue() if hasattr(up, "getvalue") else up.read()
+    wb = _ox.load_workbook(_io.BytesIO(raw), data_only=True, read_only=False)
+
+    legend: dict = {}
+    years: list = []
+    info: list = []
+    chips: dict = {}
+    phones: dict = {}
+    legend_re = _re.compile(r"^\s*([A-ZÄÖÜ]{1,3})\s*[-=–]\s*(.+?)\s*$")
+
+    def cell_str(v) -> str:
+        if v is None:
+            return ""
+        if isinstance(v, float) and v.is_integer():
+            v = int(v)
+        return str(v).strip()
+
+    for ws in wb.worksheets:
+        title = ws.title.strip()
+        m = _re.match(r"^BKF\s*(\d{4})$", title, _re.I)
+        if m:
+            year = int(m.group(1))
+            max_r, max_c = ws.max_row, ws.max_column
+            # Datumszeile suchen
+            date_row, date_cols = None, {}
+            for r in range(1, min(max_r, 15) + 1):
+                found = {}
+                for c in range(1, max_c + 1):
+                    v = ws.cell(r, c).value
+                    if isinstance(v, _dt.datetime) and v.year == year:
+                        found[c] = v.date().isoformat()
+                if len(found) > 200:
+                    date_row, date_cols = r, found
+                    break
+            if not date_cols:
+                continue
+            # Kopfzeile suchen
+            head_row, head = None, {}
+            for r in range(1, min(max_r, 15) + 1):
+                a = cell_str(ws.cell(r, 1).value).lower()
+                if "name" in a:
+                    head_row = r
+                    for c in range(2, min(max_c, 15) + 1):
+                        h = cell_str(ws.cell(r, c).value).lower()
+                        if not h:
+                            continue
+                        if "lehrjahr" in h:
+                            head["lehrjahr"] = c
+                        elif "klasse" in h:
+                            head["klasse"] = c
+                        elif "resturlaub" in h:
+                            head["rest"] = c
+                        elif "gesamt" in h:
+                            continue
+                        elif h == "urlaub":
+                            head["urlaub"] = c
+                    break
+            if not head_row:
+                continue
+            people, events, unnamed = [], [], []
+            legend_row = None
+            for r in range(head_row + 1, max_r + 1):
+                a = cell_str(ws.cell(r, 1).value)
+                if a.lower().startswith("legende"):
+                    legend_row = r
+                    break
+                days, notes = {}, []
+                for c, iso in date_cols.items():
+                    v = cell_str(ws.cell(r, c).value)
+                    if not v:
+                        continue
+                    if len(v) <= 3 and " " not in v:
+                        days[iso] = v.upper()
+                    else:
+                        notes.append({"d": iso, "t": v})
+                if not a:
+                    if days or notes:
+                        unnamed.append({"row": r, "n": len(days)})
+                    continue
+
+                def num(key):
+                    c = head.get(key)
+                    if not c:
+                        return None
+                    v = ws.cell(r, c).value
+                    try:
+                        return float(v) if v not in (None, "") else None
+                    except (TypeError, ValueError):
+                        return None
+
+                people.append({
+                    "name": a,
+                    "key": _azubi_name_key(a),
+                    "lehrjahr": cell_str(ws.cell(r, head["lehrjahr"]).value) if head.get("lehrjahr") else "",
+                    "klasse": cell_str(ws.cell(r, head["klasse"]).value) if head.get("klasse") else "",
+                    "urlaub": num("urlaub"),
+                    "rest": num("rest"),
+                    "days": days,
+                    "notes": notes,
+                    "row": r,
+                })
+            # Legende + freie Kalenderhinweise unterhalb der Legende
+            if legend_row:
+                for r in range(legend_row, max_r + 1):
+                    for c in range(1, min(max_c, 12) + 1):
+                        v = cell_str(ws.cell(r, c).value)
+                        lm = legend_re.match(v) if v else None
+                        if lm:
+                            legend[lm.group(1).upper()] = lm.group(2).strip()
+                    for c, iso in date_cols.items():
+                        v = cell_str(ws.cell(r, c).value)
+                        if v and (len(v) > 3 or " " in v):
+                            events.append({"d": iso, "t": v})
+            years.append({
+                "year": year,
+                "people": people,
+                "events": sorted(events, key=lambda e: e["d"]),
+                "unnamed": unnamed,
+            })
+            continue
+
+        low = title.lower()
+        if low.startswith("allg"):
+            cols: dict = {}
+            for row in ws.iter_rows():
+                for cell in row:
+                    v = cell_str(cell.value)
+                    if v:
+                        cols.setdefault(cell.column, []).append((cell.row, v))
+            for c in sorted(cols):
+                cur, last_r = None, None
+                for r, v in cols[c]:
+                    if v.lower().startswith("allgemeine informationen"):
+                        continue
+                    gap = last_r is not None and r - last_r > 1
+                    last_r = r
+                    if v.endswith(":"):
+                        cur = {"title": v.rstrip(":").strip(), "items": []}
+                        info.append(cur)
+                    else:
+                        if cur is None or (gap and cur["items"]):
+                            t = "Weitere Informationen"
+                            if ":" in v:
+                                t = v.split(":", 1)[0].strip()
+                            cur = {"title": t, "items": []}
+                            info.append(cur)
+                        cur["items"].append(v)
+        elif low.startswith("chip"):
+            for row in ws.iter_rows(values_only=True):
+                n = cell_str(row[0] if len(row) > 0 else "")
+                ch = cell_str(row[1] if len(row) > 1 else "")
+                if n and "," in n:
+                    chips[_azubi_name_key(n)] = {"name": n, "chip": ch}
+        elif low.startswith("telefon"):
+            started = False
+            for row in ws.iter_rows(values_only=True):
+                n = cell_str(row[0] if len(row) > 0 else "")
+                if n.lower().startswith("name"):
+                    started = True
+                    continue
+                if not started or not n:
+                    continue
+                vn = cell_str(row[1] if len(row) > 1 else "")
+                tel = cell_str(row[2] if len(row) > 2 else "")
+                if tel and not tel.startswith("0") and tel.isdigit():
+                    tel = "0" + tel
+                phones[_azubi_name_key(n + " " + vn)] = {"name": f"{n}, {vn}".strip(", "), "tel": tel}
+
+    if not years:
+        raise ValueError("Keine Blätter 'BKF JJJJ' mit Datumszeile gefunden.")
+    years.sort(key=lambda y: y["year"])
+    return _json.dumps({
+        "years": years,
+        "legend": legend,
+        "info": info,
+        "chips": chips,
+        "phones": phones,
+        "file": getattr(up, "name", ""),
+    }, ensure_ascii=False, separators=(",", ":"))
 
 
 def parse_telefon_excel(up) -> str:
@@ -43617,6 +44634,7 @@ def _build_generation_metadata(ready_instances: list, generated_at: datetime.dat
     big_customers = _safe_state_json("grosskunden_json", [])
     carriers = _safe_state_json("spediteure_json", {})
     driver_rating = _safe_state_json("fahrerbewertung_json", {})
+    azubis = _safe_state_json("azubi_json", {})
 
     shift_count = sum(len(v) for v in timerec.values() if isinstance(v, list)) if isinstance(timerec, dict) else 0
     pdf_count, pdf_bytes = _embedded_pdf_stats()
@@ -43634,6 +44652,7 @@ def _build_generation_metadata(ready_instances: list, generated_at: datetime.dat
         {"label": "Tourzuordnung", "value": str(str(st.session_state.get("tourzuordnung_html", "") or "").count(' driver-card"')), "detail": "Fahrer (4 Wochen)"},
         {"label": "Großkunden", "value": str(len(big_customers) if isinstance(big_customers, list) else 0), "detail": "Kunden"},
         {"label": "Spediteure", "value": str(len(carriers.get("fahrten", [])) if isinstance(carriers, dict) else 0), "detail": "Fahrten"},
+        {"label": "Azubis BKF", "value": str(sum(len(y.get("people", [])) for y in azubis.get("years", [])) if isinstance(azubis, dict) else 0), "detail": "Einträge (alle Jahre)"},
         {"label": "Fahrerbewertung", "value": str(len(driver_rating.get("drivers", [])) if isinstance(driver_rating, dict) else 0), "detail": "Fahrer"},
         {"label": "PDF-Dokumente", "value": str(pdf_count), "detail": f"{_human_size(pdf_bytes)} komprimiert"},
     ]
@@ -43672,7 +44691,7 @@ def _estimate_export_size(ready_instances: list) -> int:
         "tel_json", "sam_json", "fa_json", "zulage_json",
         "drittkunden_json", "fahrzeugwaesche_json", "tanken_json", "hupa_json", "tourzuordnung_html", "verstoss_json",
         "spesen_json", "grosskunden_json", "timerec_json",
-        "spediteure_json", "fahrerbewertung_json",
+        "spediteure_json", "fahrerbewertung_json", "azubi_json",
     ):
         extra_chars += len(str(st.session_state.get(key, "") or ""))
 
@@ -43754,7 +44773,7 @@ def _build_export_preflight(ready_instances: list) -> tuple[list[dict], list[str
     optional_keys = (
         "tel_json", "zulage_json", "drittkunden_json", "fahrzeugwaesche_json", "tanken_json",
         "verstoss_json", "spesen_json", "grosskunden_json", "timerec_json",
-        "spediteure_json", "fahrerbewertung_json", "tourzuordnung_html",
+        "spediteure_json", "fahrerbewertung_json", "tourzuordnung_html", "azubi_json",
     )
     loaded_optional = sum(
         1 for key in optional_keys
@@ -44270,6 +45289,18 @@ with tab_extra:
             summary_fn=lambda j: f"Telefonliste: {len(json.loads(j))} Gruppen"
         )
 
+        def _azubi_summary(j):
+            d = json.loads(j or "{}")
+            ys = d.get("years", [])
+            parts = [f"{y['year']}: {len(y.get('people', []))} Azubis" for y in ys]
+            return "Azubis BKF – " + (", ".join(parts) if parts else "keine Jahresblätter")
+        _extra_single_upload(
+            "Anwesenheitsliste Azubis BKF (Excel)", ["xlsx"], "azubi",
+            parse_azubi_excel,
+            summary_fn=_azubi_summary,
+            spinner_text="Verarbeite Anwesenheitsliste ...",
+        )
+
         def _touren_summary(ups):
             _zd  = json.loads(st.session_state.zulage_json)
             _zns = sum(len(m["fahrer"]) for m in _zd.get("sonder",   []))
@@ -44538,6 +45569,7 @@ with tab_dl:
                         last_updated=generated_at.strftime("Stand: %d.%m.%Y %H:%M"),
                         generation_meta=generation_meta,
                         tourzuordnung_html=st.session_state.get("tourzuordnung_html", ""),
+                        azubi_json=st.session_state.get("azubi_json", "{}"),
                     )
 
                 _build_progress.progress(78, text="4/5 HTML-Datei auf dem Server speichern")
