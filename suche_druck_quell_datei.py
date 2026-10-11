@@ -34050,7 +34050,7 @@ def _azubi_panels_html() -> str:
   .az-bar i{display:block;height:100%}
   .az-p-foot{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#475569;font-weight:700;flex-wrap:wrap}
   .az-p-foot a{color:#0f766e;text-decoration:none;font-weight:850}
-  .az-table-wrap{overflow:auto;border:1px solid #e1e7ef;border-radius:10px;max-height:calc(100vh - 330px)}
+  .az-table-wrap{overflow-x:auto;overflow-y:hidden;border:1px solid #e1e7ef;border-radius:10px}
   table.az-table{border-collapse:separate;border-spacing:0;width:100%;font:700 12px 'Segoe UI',Arial,sans-serif;color:#1e293b}
   table.az-table th{position:sticky;top:0;background:#f1f5f9;color:#475569;font-size:10.5px;font-weight:950;text-transform:uppercase;letter-spacing:.35px;padding:8px 9px;border-bottom:1px solid #dbe3ec;text-align:left;white-space:nowrap;z-index:2;cursor:pointer}
   table.az-table th.num,table.az-table td.num{text-align:right;font-variant-numeric:tabular-nums}
@@ -34096,6 +34096,22 @@ def _azubi_panels_html() -> str:
   .az-ok{border-left:4px solid #16a34a;background:#f0fdf4}
   .az-empty{padding:60px 20px;text-align:center;color:#64748b;font:750 13px 'Segoe UI',Arial,sans-serif}
   .az-empty b{display:block;font-size:16px;color:#0f172a;margin-bottom:6px}
+  .az-today{display:flex;align-items:center;gap:20px;padding:20px 24px;border-radius:16px;background:linear-gradient(120deg,#0f766e 0%,#0e7490 55%,#1d4ed8 100%);color:#fff;box-shadow:0 10px 28px rgba(15,118,110,.28);flex-wrap:wrap}
+  .az-today-cal{width:92px;flex-shrink:0;background:#fff;border-radius:14px;overflow:hidden;text-align:center;box-shadow:0 6px 16px rgba(0,0,0,.18)}
+  .az-today-cal span{display:block;background:#dc2626;color:#fff;font:950 13px 'Segoe UI',Arial,sans-serif;letter-spacing:1.5px;padding:5px 0}
+  .az-today-cal b{display:block;color:#0f172a;font:950 42px/1 'Segoe UI',Arial,sans-serif;padding:8px 0 2px}
+  .az-today-cal i{display:block;color:#64748b;font:900 13px 'Segoe UI',Arial,sans-serif;font-style:normal;padding-bottom:7px}
+  .az-today-txt{flex:1;min-width:260px}
+  .az-today-tag{display:inline-block;color:#0f172a;font:950 11px 'Segoe UI',Arial,sans-serif;letter-spacing:1.2px;padding:4px 10px;border-radius:999px}
+  .az-today-date{font:950 26px 'Segoe UI',Arial,sans-serif;letter-spacing:-.4px;margin-top:7px;line-height:1.15}
+  .az-today-sub{font:700 13px 'Segoe UI',Arial,sans-serif;opacity:.9;margin-top:5px}
+  .az-today-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .az-today-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:4px 11px;font:850 12px 'Segoe UI',Arial,sans-serif}
+  .az-today-pill i{width:10px;height:10px;border-radius:50%;display:inline-block;box-shadow:0 0 0 2px rgba(255,255,255,.7)}
+  .az-today-nav{display:flex;gap:6px}
+  .az-today-nav button{background:rgba(255,255,255,.18);border:1.5px solid rgba(255,255,255,.4);color:#fff;border-radius:10px;padding:9px 14px;font:900 13px 'Segoe UI',Arial,sans-serif;cursor:pointer}
+  .az-today-nav button:hover{background:rgba(255,255,255,.3)}
+  .az-today-nav button:disabled{opacity:.45;cursor:default}
   .az-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
   .az-board-col{border:1px solid #e1e7ef;border-radius:11px;background:#fff;overflow:hidden}
   .az-board-col h5{margin:0;padding:8px 11px;color:#fff;font:950 12px 'Segoe UI',Arial,sans-serif;display:flex;justify-content:space-between}
@@ -34152,10 +34168,11 @@ def _azubi_dashboard_js() -> str:
 
 // ── Azubis Berufskraftfahrer ──────────────────────────────────────────────────
 var AZUBI_DATA = {};
-var AZ = { year: 0, tab: "overview", q: "", lj: "", kl: "", active: true, month: -1, weekStart: "", evalMode: "today", sort: { key: "name", dir: 1 } };
+var AZ = { year: 0, tab: "overview", q: "", lj: "", kl: "", active: true, month: -1, weekStart: "", boardDay: "", evalMode: "today", sort: { key: "name", dir: 1 } };
 var AZ_MONTHS = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
 var AZ_MONTHS_LONG = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 var AZ_WD = ["So","Mo","Di","Mi","Do","Fr","Sa"];
+var AZ_WD_LONG = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
 var AZ_CATS = [
   { key: "tour",      label: "Tour",        color: "#2563eb", codes: ["T","AT","BT"] },
   { key: "schule",    label: "Berufsschule",color: "#7c3aed", codes: ["BS"] },
@@ -34338,7 +34355,7 @@ function azFillControls(){
   var sub = document.getElementById("az-sub");
   if(sub) sub.textContent = "Quelle: " + (AZUBI_DATA.file || "Anwesenheitsliste") + " · " + ys.length + " Jahresblätter (" + ys.join(", ") + ") · Stichtag " + azFmt(azRefDate());
 }
-function azSetYear(v){ AZ.year = +v; AZ.month = -1; AZ.weekStart = ""; azFillControls(); azRender(); }
+function azSetYear(v){ AZ.year = +v; AZ.month = -1; AZ.weekStart = ""; AZ.boardDay = ""; azFillControls(); azRender(); }
 function azSetFilter(k, v){ AZ[k] = v; azRender(); }
 function azSetTab(t){ AZ.tab = t; azRender(); var s=document.getElementById("az-scroll"); if(s) s.scrollTop = 0; }
 
@@ -34359,7 +34376,10 @@ function azRenderOverview(){
   var people = azPeople(), ref = azRefDate(), y = azYearObj(AZ.year);
   var all = y ? y.people : [];
   var active = all.filter(function(p){ return azIsActive(p, ref); });
-  var bday = azBoardDate(ref, active), bLbl = bday === ref ? "Heute" : AZ_WD[azParse(bday).getDay()] + " " + azFmt(bday, false);
+  var autoDay = azBoardDate(ref, active);
+  if(AZ.boardDay && AZ.boardDay.slice(0,4) !== String(AZ.year)) AZ.boardDay = "";
+  var bday = AZ.boardDay || autoDay, realToday = azToday();
+  var bLbl = bday === realToday ? "Heute" : AZ_WD[azParse(bday).getDay()] + " " + azFmt(bday, false);
   var exits = all.filter(function(p){ var e = azExitAnywhere(p); return e && e.d.slice(0,4) === String(AZ.year); });
   var todayCat = {}; AZ_CATS.forEach(function(c){ todayCat[c.key] = 0; });
   var sick = 0, vacOpen = 0, tourSum = 0;
@@ -34372,33 +34392,62 @@ function azRenderOverview(){
   var ljText = Object.keys(ljCount).sort().map(function(k){ return "LJ "+k+": "+ljCount[k]; }).join(" · ");
   var kpis = [
     ["Aktive Azubis", active.length, ljText || "–"],
-    [bLbl + " Tour", todayCat.tour, bday === ref ? "Stichtag " + azFmt(ref) : "nächster Arbeitstag"],
-    [bLbl + " Berufsschule", todayCat.schule, "Fahrschule: " + todayCat.fahrschule],
-    [bLbl + " Urlaub / Krank", todayCat.urlaub + " / " + todayCat.krank, "Ausgleich: " + todayCat.ausgleich],
     ["Tourtage " + AZ.year, tourSum, "aktive Azubis bis Stichtag"],
     ["Krankentage " + AZ.year, sick, "aktive Azubis bis Stichtag"],
     ["Offener Urlaub", vacOpen, "nicht verplante Tage"],
     ["Abgänge " + AZ.year, exits.length, exits.map(function(p){ return azDisplayName(p.name).split(" ")[0]; }).join(", ") || "–"]
   ];
-  var html = "<div class='az-card'><div class='az-kpis'>" + kpis.map(function(k){
+  var html = azTodayBoard(active, bday, autoDay, realToday);
+  html += "<div class='az-card'><div class='az-kpis'>" + kpis.map(function(k){
     return "<div class='az-kpi'><div class='az-kpi-label'>"+k[0]+"</div><div class='az-kpi-value'>"+azEsc(k[1])+"</div><div class='az-kpi-note' title='"+azEsc(k[2])+"' style='white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>"+azEsc(k[2])+"</div></div>";
   }).join("") + "</div></div>";
-
-  // Heute-Board
-  var groups = {};
-  active.forEach(function(p){ var code = p.days[bday]; var c = code ? azCat(code) : null; var k = c ? c.key : "_none"; (groups[k] = groups[k] || []).push(p); });
-  html += "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#128205; Wo sind die Azubis am " + AZ_WD[azParse(bday).getDay()] + " " + azFmt(bday) + "?" + (bday !== ref ? " <small>(nächster Arbeitstag nach dem " + azFmt(ref) + ")</small>" : "") + "</div><div class='az-board'>";
-  AZ_CATS.concat([{key:"_none",label:"Kein Eintrag",color:"#cbd5e1"}]).forEach(function(c){
-    var list = groups[c.key]; if(!list || !list.length) return;
-    html += "<div class='az-board-col'><h5 style='background:"+c.color+"'><span>"+azEsc(c.label)+"</span><span>"+list.length+"</span></h5>" +
-      list.map(function(p){ return "<div onclick=\"azOpenDetail('"+azEsc(p.key)+"')\">"+azEsc(azDisplayName(p.name))+(p.days[bday]?" <span style='color:#94a3b8;font-size:10.5px'>("+azEsc(p.days[bday])+")</span>":"")+"</div>"; }).join("") + "</div>";
-  });
-  html += "</div></div></div>";
 
   // Karten
   html += "<div class='az-card'><div class='az-section'><div class='az-section-title'>&#128101; Azubis <small>" + people.length + " angezeigt · Klick öffnet Details</small></div>";
   if(!people.length) html += "<div class='az-empty'>Keine Azubis für diese Auswahl.</div>";
   html += "<div class='az-grid'>" + people.map(function(p){ return azPersonCard(p, ref); }).join("") + "</div></div></div>";
+  return html;
+}
+
+function azBoardNav(n){
+  var y = azYearObj(AZ.year); if(!y) return;
+  var ref = azRefDate(), active = y.people.filter(function(p){ return azIsActive(p, ref); });
+  var d = AZ.boardDay || azBoardDate(ref, active);
+  for(var i=0;i<14;i++){
+    d = azAddDays(d, n);
+    if(d.slice(0,4) !== String(AZ.year)) return;
+    if(!azIsWeekend(d)) break;
+  }
+  AZ.boardDay = d; azRender();
+}
+function azBoardReset(){ AZ.boardDay = ""; azRender(); }
+function azTodayBoard(active, bday, autoDay, realToday){
+  var dt = azParse(bday), tag, tagColor;
+  if(bday === realToday){ tag = "HEUTE"; tagColor = "#fde047"; }
+  else if(!AZ.boardDay && bday === autoDay){ tag = "NÄCHSTER ARBEITSTAG"; tagColor = "#fde047"; }
+  else if(bday < realToday){ tag = "VERGANGENER TAG"; tagColor = "#cbd5e1"; }
+  else { tag = "VORSCHAU"; tagColor = "#a5f3fc"; }
+  var groups = {}, planned = 0;
+  active.forEach(function(p){ var code = p.days[bday]; var c = code ? azCat(code) : null; var k = c ? c.key : "_none"; (groups[k] = groups[k] || []).push(p); if(code) planned++; });
+  var summary = AZ_CATS.filter(function(c){ return groups[c.key]; }).map(function(c){
+    return "<span class='az-today-pill'><i style='background:"+c.color+"'></i>"+groups[c.key].length+" "+azEsc(c.label)+"</span>";
+  }).join("");
+  var todayInfo = bday !== realToday ? "Heute ist " + AZ_WD_LONG[azParse(realToday).getDay()] + ", " + azFmt(realToday) + " · " : "";
+  var html = "<div class='az-today'>" +
+    "<div class='az-today-cal'><span>" + AZ_MONTHS[dt.getMonth()].toUpperCase() + "</span><b>" + dt.getDate() + "</b><i>" + AZ_WD[dt.getDay()] + "</i></div>" +
+    "<div class='az-today-txt'><div class='az-today-tag' style='background:" + tagColor + "'>" + tag + "</div>" +
+    "<div class='az-today-date'>Wo sind die Azubis am " + AZ_WD_LONG[dt.getDay()] + ", " + dt.getDate() + ". " + AZ_MONTHS_LONG[dt.getMonth()] + " " + dt.getFullYear() + "?</div>" +
+    "<div class='az-today-sub'>" + todayInfo + "KW " + azIsoWeek(bday) + " · " + planned + " von " + active.length + " aktiven Azubis eingeplant</div>" +
+    "<div class='az-today-pills'>" + summary + "</div></div>" +
+    "<div class='az-today-nav'><button onclick='azBoardNav(-1)' title='vorheriger Arbeitstag'>&#9664;</button><button onclick='azBoardReset()'" + (AZ.boardDay ? "" : " disabled") + ">Heute</button><button onclick='azBoardNav(1)' title='nächster Arbeitstag'>&#9654;</button></div>" +
+    "</div>";
+  html += "<div class='az-card' style='margin-top:-6px'><div class='az-section'><div class='az-board'>";
+  AZ_CATS.concat([{key:"_none",label:"Kein Eintrag",color:"#cbd5e1"}]).forEach(function(c){
+    var list = groups[c.key]; if(!list || !list.length) return;
+    html += "<div class='az-board-col'><h5 style='background:"+c.color+"'><span>"+azEsc(c.label)+"</span><span>"+list.length+"</span></h5>" +
+      list.map(function(p){ return "<div onclick=\"azOpenDetail('"+azEsc(p.key)+"')\">"+azEsc(azDisplayName(p.name))+(p.days[bday]?" <span style='color:#94a3b8;font-size:10.5px'>("+azEsc(p.days[bday])+" – "+azEsc(azLegendText(p.days[bday]))+")</span>":"")+"</div>"; }).join("") + "</div>";
+  });
+  html += "</div></div></div>";
   return html;
 }
 function azBoardDate(ref, active){
@@ -36533,7 +36582,7 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
   overflow:visible;
   scrollbar-width:none;
 }}
-.nav-rows{{flex:1;min-width:0;display:grid;grid-template-columns:repeat(8,minmax(0,150px));gap:6px;justify-content:center;align-content:center}}
+.nav-rows{{flex:1;min-width:0;max-width:1760px;margin:0 auto;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px;justify-content:center;align-content:center}}
 .nav-row{{display:contents}}
 .nav-rows .nav-dd{{width:100%}}
 .nav-rows .nav-btn,.nav-rows .nav-dd-btn{{width:100%;justify-content:center;text-align:center;padding:7px 6px;font-size:11.5px;display:flex;align-items:center;gap:4px}}
