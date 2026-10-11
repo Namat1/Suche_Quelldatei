@@ -8906,6 +8906,7 @@ document.addEventListener('keydown',function(e){{if(e.key==='Escape')closeBuildI
             <span class="tel-sicon">&#128269;</span>
             <input id="tel-search" class="tel-search" placeholder="Name oder Nummer suchen..." oninput="telFilter(this.value)">
           </div>
+          <button class="tel-pdf" onclick="telExcel()">&#128202; Excel</button>
           <button class="tel-pdf" onclick="telPDF()">&#128196; PDF</button>
         </div>
       </div>
@@ -10955,6 +10956,37 @@ function telPDF() {{
   w.document.close();
   w.focus();
   setTimeout(function(){{ w.print(); }}, 400);
+}}
+
+function telExcel() {{
+  var lib = window.XLSXStyle || window.XLSX;
+  if(!lib || !lib.utils) {{ alert("Excel-Bibliothek nicht geladen. Bitte die Seite neu laden."); return; }}
+  if(!TEL_DATA || !TEL_DATA.length) {{ alert("Keine Telefondaten vorhanden."); return; }}
+  var head = ["Gruppe","Name","Telefon","E-Mail / Funktion"];
+  var aoa = [head];
+  TEL_DATA.forEach(function(g) {{
+    (g.personen || []).forEach(function(p) {{
+      aoa.push([g.gruppe || "", p.name || "", String(p.tel || ""), p.mail || ""]);
+    }});
+  }});
+  var ws = lib.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{{wch:28}},{{wch:32}},{{wch:22}},{{wch:36}}];
+  ws["!autofilter"] = {{ ref: "A1:D" + aoa.length }};
+  ws["!freeze"] = {{ xSplit:0, ySplit:1 }};
+  var hs = {{ font:{{bold:true,color:{{rgb:"FFFFFF"}}}}, fill:{{fgColor:{{rgb:"1B66B3"}}}}, alignment:{{vertical:"center"}} }};
+  for(var c = 0; c < head.length; c++) {{
+    var addr = lib.utils.encode_cell({{r:0,c:c}});
+    if(ws[addr]) ws[addr].s = hs;
+  }}
+  for(var r = 1; r < aoa.length; r++) {{
+    var tAddr = lib.utils.encode_cell({{r:r,c:2}});
+    if(ws[tAddr]) {{ ws[tAddr].t = "s"; ws[tAddr].z = "@"; }}
+  }}
+  var wb = lib.utils.book_new();
+  lib.utils.book_append_sheet(wb, ws, "Telefonliste");
+  var d = new Date();
+  var stamp = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  lib.writeFile(wb, "Telefonliste_NFC_" + stamp + ".xlsx");
 }}
 
 function telCopy(tel) {{
@@ -13529,8 +13561,6 @@ function ddSelectFaMode(mode) {{
 
     if(_buildInfosDdMenuOriginal) {{
       _buildInfosDdMenuOriginal();
-      var _telItem = menu.querySelector('[data-area="tel"]');
-      if(_telItem) _telItem.remove();
     }} else {{
       var fallbackItems = [
         ["bus", "Mitarbeiterbus"],
@@ -13555,6 +13585,14 @@ function ddSelectFaMode(mode) {{
         el.onclick = function() {{ showArea(el.getAttribute("data-area")); _infosCloseDropdowns(); }};
       }});
     }}
+
+    // Telefonliste hat eigenen Nav-Button -> aus Infos & Aushänge entfernen
+    Array.prototype.slice.call(menu.children).forEach(function(el) {{
+      var da = el.getAttribute("data-area") || "";
+      var oc = el.getAttribute("onclick") || "";
+      var tx = (el.textContent || "").trim();
+      if(da === "tel" || /showArea\\(\\s*['"]tel['"]\\s*\\)/.test(oc) || /Telefonliste/i.test(tx)) el.remove();
+    }});
 
     if(!menu.querySelector('[data-area="reinigung"]')) {{
       var item = document.createElement("div");
