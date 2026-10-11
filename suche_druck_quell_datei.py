@@ -8670,6 +8670,7 @@ iframe.active{{display:block}}
   <button class="nav-btn" id="btn-spesen" onclick="showArea('spesen')">&#128181; Spesen</button>
   <button class="nav-btn" id="btn-gk" onclick="showArea('gk')">&#127970; Gro&#223;kunden</button>
   <button class="nav-btn" id="btn-hupa" onclick="showArea('hupa')">&#128230; HuPa</button>
+  <button class="nav-btn" id="btn-tel" onclick="showArea('tel')">&#128222; Telefonliste</button>
   <div class="nav-dd" id="dd-sped">
     <button class="nav-dd-btn" id="btn-sped" onclick="ddToggle('sped',event)">
       &#128666; Spediteure <span class="dd-arrow">&#9660;</span>
@@ -10044,7 +10045,7 @@ function showArea(s) {{
   if(knappPanel) knappPanel.style.display = (s==="knapp") ? "flex" : "none";
   if(s==="knapp" && knappPanel && !knappPanel.dataset.loaded) {{ knappInit(); knappPanel.dataset.loaded="1"; }}
   var infosBtn = document.getElementById("btn-infos");
-  if(infosBtn) infosBtn.className = "nav-dd-btn" + ((s==="tel" || s==="bus" || s==="arzt" || s==="versp" || s==="knapp" || s==="schluessel" || s==="entgelt" || s==="schaden" || s==="maengel" || s==="lkw_uebergabe" || s==="reinigung" || s==="reisekosten" || s==="balzer" || s==="termine") ? " active" : "");
+  if(infosBtn) infosBtn.className = "nav-dd-btn" + ((s==="bus" || s==="arzt" || s==="versp" || s==="knapp" || s==="schluessel" || s==="entgelt" || s==="schaden" || s==="maengel" || s==="lkw_uebergabe" || s==="reinigung" || s==="reisekosten" || s==="balzer" || s==="termine") ? " active" : "");
   if(typeof buildInfosDdMenu === "function") buildInfosDdMenu();
   var spedPanel = document.getElementById("panel-sped");
   if(spedPanel) spedPanel.style.display = (s==="sped") ? "flex" : "none";
@@ -13528,9 +13529,10 @@ function ddSelectFaMode(mode) {{
 
     if(_buildInfosDdMenuOriginal) {{
       _buildInfosDdMenuOriginal();
+      var _telItem = menu.querySelector('[data-area="tel"]');
+      if(_telItem) _telItem.remove();
     }} else {{
       var fallbackItems = [
-        ["tel", "Telefonliste"],
         ["bus", "Mitarbeiterbus"],
         ["arzt", "Betriebsärztin"],
         ["versp", "Verspätungstabelle"],
