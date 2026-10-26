@@ -69,7 +69,7 @@ st.set_page_config(page_title="NFC Generator v50", layout="wide")
 _boot_log("04 Seitenkonfiguration gesetzt")
 
 APP_CACHE_VERSION = "hupa-dashboard-2026-10-06-v60-picnic-all-times-hotfix"
-EXTRA_CACHE_VERSION = "extra-parser-2026-10-07-drittkunden-intern-v2"
+EXTRA_CACHE_VERSION = "extra-parser-2026-10-26-sped-soll-ist-v8"
 TIMEREC_PARSER_VERSION = "timerec-parser-2026-09-20-v3-netto-saturday-contenthash"
 APP_DISPLAY_VERSION = "54"
 APP_DISPLAY_NAME = "NFC Generator"
@@ -94,6 +94,7 @@ EXCLUDED_DRIVER_NAMES = (
     "Paasch & Reinke 2", "Paasch & Reinke 3", "deVries", "Spedition Ihde", "Insellogistik 1",
     "Insellogistik 2", "Zippel Logistik T1", "Zippel Logistik T2", "Zippel Logistik T3",
     "Ch. Holtz T1", "Ch. Holtz T2", "Ch. Holtz T3", "T&D Spedition", "Kudex 1", "Kudex 2", "FP Fleischwerk",
+    "Elbfracht",
 )
 
 
@@ -33018,7 +33019,8 @@ SPEDITEUR_KATALOG = [
     ("8027", "Zippel Logistik T4"), ("8029", "Zippel Logistik T5"),
     ("8030", "Insellogistik 1"), ("8031", "Insellogistik 2"), ("8032", "Insellogistik 3"), ("8033", "Insellogistik 4"),
     ("8034", "T & D"), ("8035", "Sped. Maas"), ("8036", "Nordfrost"), ("8037", "Emons"), ("8038", "Thermotraffic"),
-    ("8039", "Kudex 1"), ("8040", "Kudex 2"), ("8045", "Kudex 3"), ("8046", "Kudex 4"),
+    # Sped. Elbfracht hieß vorher Kudex (gleiche Nummern; "Kudex" wird als Alias erkannt)
+    ("8039", "Sped. Elbfracht 1"), ("8040", "Sped. Elbfracht 2"), ("8045", "Sped. Elbfracht 3"), ("8046", "Sped. Elbfracht 4"),
     ("8041", "Pfenning 1"), ("8042", "Pfenning 2"), ("8043", "Pfenning 3"), ("8044", "Pfenning 4"),
     ("8047", "Sped. Elbfracht"),
 ]
@@ -33027,9 +33029,9 @@ SPEDITEUR_KATALOG = [
 # Speditionen werden zusätzlich sicher über den Firmennamen erkannt, auch
 # wenn in der Nummernspalte eine andere Nummer steht, der Name allein
 # ("Elbfracht") oder mit Zusatz ("Elbfracht 2") eingetragen ist.
-_SPED_NAME_FLEX_NR = {"8047"}
+_SPED_NAME_FLEX_NR = {"8039", "8040", "8045", "8046", "8047"}
 _SPED_GENERIC = {"spedition", "sped", "logistik", "gmbh", "kg", "co", "transporte", "transport", "cocg", "und"}
-_SPED_COMPANY_ALIASES = {"paasch": "paaschreinke", "reinke": "paaschreinke"}
+_SPED_COMPANY_ALIASES = {"paasch": "paaschreinke", "reinke": "paaschreinke", "kudex": "elbfracht"}
 
 # Oberkategorie (Spedition) je Katalog-Nummer. Die Katalog-Namen sind Unterkategorien.
 _SPED_GRUPPEN = {
@@ -33040,7 +33042,7 @@ _SPED_GRUPPEN = {
     "Spedition Ihde":  {"8022"},
     "Zippel Logistik": {"8024","8025","8026","8027","8029"},
     "Insellogistik":   {"8030","8031","8032","8033"},
-    "Kudex":           {"8039","8040","8045","8046"},
+    "Sped. Elbfracht": {"8039","8040","8045","8046","8047"},
     "Pfenning":        {"8041","8042","8043","8044"},
 }
 _SPED_NR_GRUPPE = {nr: g for g, nrs in _SPED_GRUPPEN.items() for nr in nrs}
@@ -33139,7 +33141,7 @@ def _sped_match(text: str, *, allow_bare_single_company: bool = False):
     # ein Fahrer-Nachname sein. Erlaubt ist das nur, wenn die Zelle einen
     # Firmenmarker wie 'Sped.' enthält oder bewusst freigeschaltet wird.
     if (len(toks) == 1 and not _sped_has_marker(text) and not allow_bare_single_company
-            and toks[0] not in _SPED_FLEX_COMPANIES):
+            and _SPED_COMPANY_ALIASES.get(toks[0], toks[0]) not in _SPED_FLEX_COMPANIES):
         return None
 
     compact, company, variant = _sped_parse(text)
@@ -33153,12 +33155,17 @@ def _sped_match(text: str, *, allow_bare_single_company: bool = False):
             for e in ents:
                 if e["variant"] == variant:
                     return e
-            # Flex-Speditionen ohne Untervarianten (z.B. "Elbfracht 2") eindeutig zuordnen.
-            if company in _SPED_FLEX_COMPANIES and len(ents) == 1 and not ents[0]["variant"]:
-                return ents[0]
+            # Flex-Speditionen: unbekannte Variante (z.B. "Elbfracht 7") auf den Eintrag ohne Variante.
+            if company in _SPED_FLEX_COMPANIES:
+                ohne = [e for e in ents if not e["variant"]]
+                if len(ohne) == 1:
+                    return ohne[0]
             return None  # Firma bekannt, Variante unbekannt -> nicht raten
         if len(ents) == 1:
             return ents[0]
+        ohne = [e for e in ents if not e["variant"]]
+        if len(ohne) == 1:
+            return ohne[0]   # z.B. "Sped. Elbfracht" ohne Nummer -> 8047
     return None
 
 
@@ -33277,9 +33284,31 @@ def parse_spediteure_excel(dateien: list) -> str:
             return ""
         return str(int(float(s))) if s.replace(".", "").replace("-", "").isdigit() else s
 
+    def _txt(val):
+        try:
+            if _pd.isna(val):
+                return ""
+        except Exception:
+            pass
+        s = re.sub(r"\s+", " ", str(val or "").replace(" ", " ")).strip()
+        return "" if s.lower() in ("nan", "none", "nat", "0") else s
+
+    # Tagesauswertung für Soll/Ist (Dashboard FP): je Datum eigene Touren,
+    # Spediteurfahrten, sonstige Externe, unbesetzte Touren, Krank/Urlaub
+    # (Personentage) und eingesetzte eigene Fahrer. Nur Zähler, keine Namen.
+    tage = {}
+
+    def _tag(iso):
+        t = tage.get(iso)
+        if t is None:
+            t = tage[iso] = {"eigen": set(), "sped": 0, "fremd": set(), "offen": set(),
+                             "krank": set(), "urlaub": set(), "fahrer": set()}
+        return t
+
     seen = set()
     fahrten = []
     used_nr = set()
+    eigen_lkw = set()
 
     for datei in dateien:
         try:
@@ -33299,24 +33328,33 @@ def parse_spediteure_excel(dateien: list) -> str:
             # Die Nummernspalte ist bindend: Steht dort eine fremde Fahrer-Nummer,
             # darf ein gleicher Nachname nicht als Spedition gewertet werden.
             ent = None
+            kf_col = 2
             for a, b in ((3, 4), (6, 7)):
                 left = row[a] if len(row) > a else ""
                 right = row[b] if len(row) > b else ""
                 ent = _sped_match_pair(left, right)
                 if ent:
+                    kf_col = a - 1   # KF-Nr. steht links vom Namen (Spalte C bzw. F)
                     break
-            if not ent:
-                continue
 
             tour = _tour(row[15] if len(row) > 15 else "")
             lkw = _lkw(row[11] if len(row) > 11 else "")
             zeit = _zeit(row[8] if len(row) > 8 else None)
             iso = datum.strftime("%Y-%m-%d")
+
+            if not ent:
+                lkw_t = _sped_zelle(row[11] if len(row) > 11 else "") or _sped_zelle(row[10] if len(row) > 10 else "")
+                _sped_tag_eintrag(_tag(iso), row, tour, lkw_t, zeit, _txt, eigen_lkw)
+                continue
+
             key = (ent["nr"], iso, tour, lkw, zeit)
             if key in seen:
                 continue
             seen.add(key)
             used_nr.add(ent["nr"])
+            ist_zbv = bool(_SPED_ZBV_RE.search(tour))
+            if _sped_ist_tour(tour):
+                _tag(iso)["sped"] += 1
             fahrten.append({
                 "nr": ent["nr"],
                 "name": ent["name"],
@@ -33331,11 +33369,620 @@ def parse_spediteure_excel(dateien: list) -> str:
                 "zeit": zeit,
                 "quelle": quelle,
             })
+            # Für die Tarifregeln: Tournummer aus Spalte A und Freitext
+            # (Strecke/Kunde, z.B. "NMS-Shuttle", "Ahaus RL") ohne Namensspalten.
+            if ist_zbv:
+                fahrten[-1]["zbv"] = 1
+            lkw_e = _sped_zelle(row[11] if len(row) > 11 else "") or _sped_zelle(row[10] if len(row) > 10 else "")
+            if lkw_e and re.search(r"\d", lkw_e):
+                fahrten[-1]["_lkw_eintrag"] = lkw_e
+                if not fahrten[-1].get("lkw"):
+                    fahrten[-1]["lkw"] = lkw_e
+            kf = _sped_clean_number(row[kf_col] if len(row) > kf_col else "")
+            if kf and kf != ent["nr"]:
+                fahrten[-1]["kf"] = kf
+            tnr = _tour(row[0] if len(row) > 0 else "")
+            if tnr and tnr != tour:
+                fahrten[-1]["tnr"] = tnr
+            txt = " ".join(t for t in (_txt(row[i]) if len(row) > i else "" for i in (1, 2, 12, 13, 16, 17))
+                           if re.search(r"[A-Za-zÄÖÜäöüß]", t))
+            if txt:
+                fahrten[-1]["txt"] = txt[:160]
+
+    # Edeka-LKW: In den Vorlagen haben Spediteur-Zeilen nie eine LKW-Nummer. Steht im
+    # Wochenplan bei einer Spediteur-Zeile ein LKW (Spalte K/L), fährt sie mit Edeka-LKW
+    # (z.B. CHT 290 €). Zusätzlich: LKW, die im Plan auch eigene Fahrer fahren.
+    for f in fahrten:
+        if f.pop("_lkw_eintrag", "") or (f.get("lkw") and f["lkw"] in eigen_lkw):
+            f["elkw"] = 1
 
     katalog = [{"nr": nr, "name": name, "gruppe": _sped_gruppe(nr, name)}
                for nr, name in SPEDITEUR_KATALOG if nr in used_nr]
     fahrten.sort(key=lambda x: (x["iso"], (int(x["nr"]) if x["nr"].isdigit() else 0)))
-    return _json.dumps({"katalog": katalog, "fahrten": fahrten}, ensure_ascii=False)
+    tage_out = []
+    for iso in sorted(tage):
+        t = tage[iso]
+        # Kranke/Urlauber, die am selben Tag trotzdem eine Tour haben, zählen als im Einsatz.
+        krank = t["krank"] - t["fahrer"]
+        urlaub = t["urlaub"] - t["fahrer"] - krank
+        fremd = t["fremd"] - t["eigen"]
+        offen = t["offen"] - t["eigen"] - fremd
+        rec = {"iso": iso, "eigen": len(t["eigen"]), "sped": t["sped"], "fremd": len(fremd),
+               "offen": len(offen), "krank": len(krank), "urlaub": len(urlaub),
+               "fahrer": len(t["fahrer"])}
+        if any(rec[k] for k in ("eigen", "sped", "fremd", "offen", "krank", "urlaub", "fahrer")):
+            tage_out.append(rec)
+    return _json.dumps({"katalog": katalog, "fahrten": fahrten, "tage": tage_out}, ensure_ascii=False)
+
+
+# Externe ohne Katalog-Nummer (z.B. M+S Express) dürfen nicht als eigene
+# Fahrer zählen. Bewusst keine häufigen Nachnamen wie Meyer/Maas.
+_SPED_EXTERN_HINTS = ("ch.holtz", "ch. holtz", "paasch", "devries", "de vries", "ihde", "insellogistik",
+                      "zippel", "m+s", "express", "kudex", "pfenning", "nordfrost", "emons",
+                      "thermotraffic", "elbfracht")
+_SPED_ABWESEND_RE = re.compile(r"krank|urlaub|ausgleich|elternzeit", re.I)
+_SPED_ZBV_RE = re.compile(r"z\.?\s*b\.?\s*v|sonderaufgaben|sonder", re.I)
+# Einträge in Spalte P, die keine Tour sind (Abwesenheit, Hof, Werkstatt, Schule, z.b.v. …)
+_SPED_NICHT_TOUR_RE = re.compile(
+    r"krank|urlaub|ausgleich|elternzeit|schule|z\.?\s*b\.?\s*v|sonderaufgabe|werk?s?t?att|wekstatt|\bhof\b"
+    r"|verla\w*dung|kommi|leergut|waschteam", re.I)
+
+
+def _sped_ist_tour(tour: str) -> bool:
+    """Spalte P ist eine Tour: Tournummer oder Fahrt wie 'NMS Umfuhr', 'Elfering Ahaus', 'PICNIC'."""
+    t = str(tour or "").strip()
+    if not t or t == "0" or (":" in t and re.fullmatch(r"[\d:.\- ]+", t)):
+        return False   # Datums-/Zeitwerte aus Kopfzeilen sind keine Tour
+    return not _SPED_NICHT_TOUR_RE.search(t)
+
+
+def _sped_tag_eintrag(tag: dict, row, tour: str, lkw: str, zeit: str, _txt, eigen_lkw=None) -> None:
+    """Ordnet eine Tourenplan-Zeile ohne Katalog-Spediteur der Tagesauswertung zu.
+
+    eigen  = Tour mit eigenem Fahrer (Schlüssel Tour+Abfahrt, sonst LKW/Fahrer)
+    fremd  = Tour mit externem Fahrer ohne Katalog-Nummer
+    offen  = Tournummer ohne Fahrer
+    krank/urlaub/fahrer = Personen-Schlüssel je Tag (Personentage)
+    """
+    personen, extern = [], []
+    for a, b in ((3, 4), (6, 7)):
+        l = _txt(row[a] if len(row) > a else "")
+        r = _txt(row[b] if len(row) > b else "")
+        if not l and not r:
+            continue
+        combo = (l + " " + r).strip()
+        low = combo.lower()
+        if _SPED_ABWESEND_RE.search(low) or _SPED_ZBV_RE.search(low) or "unzugeordnet" in low:
+            continue
+        if _sped_has_marker(combo) or any(h in low for h in _SPED_EXTERN_HINTS):
+            extern.append(re.sub(r"\s+", " ", low))
+            continue
+        if not re.search(r"[a-zäöüß]", low):
+            continue  # nur Nummer ohne Namen: nicht als Person werten
+        personen.append(re.sub(r"\s+", " ", low))
+
+    tlow = tour.lower()
+    if _SPED_ABWESEND_RE.search(tlow):
+        if "krank" in tlow:
+            tag["krank"].update(personen)
+        else:
+            tag["urlaub"].update(personen)   # Urlaub, Ausgleich, Elternzeit
+        return
+
+    # Tour = Spalte P mit Tournummer oder Fahrt (Umfuhr, Shuttle, Drittkunde).
+    # Hof, Werkstatt, Verladung, Schule, z.b.v. sind Einsatz, aber keine Tour.
+    ist_tour = _sped_ist_tour(tour)
+    if re.fullmatch(r"\d+", tour):
+        key = (tour, zeit)
+    else:
+        key = (tour, zeit, lkw, (personen or extern or [""])[0])
+
+    if personen:
+        tag["fahrer"].update(personen)
+        if lkw and eigen_lkw is not None:
+            eigen_lkw.add(lkw)
+        if ist_tour:
+            tag["eigen"].add(key)
+    elif extern:
+        if ist_tour:
+            tag["fremd"].add(key)
+    elif ist_tour:
+        tag["offen"].add(key)
+
+
+def _sped_zelle(v) -> str:
+    try:
+        if pd.isna(v):
+            return ""
+    except Exception:
+        pass
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    s = re.sub(r"\s+", " ", str(v).replace("\u00a0", " ")).strip()
+    return "" if s.lower() in ("nan", "none", "nat", "0") else s
+
+
+def _sped_zeit(v) -> str:
+    import datetime as _dt
+    if isinstance(v, (_dt.datetime, pd.Timestamp, _dt.time)):
+        return v.strftime("%H:%M")
+    if isinstance(v, float) and 0 < v < 1:
+        m = int(round(v * 1440)) % 1440
+        return f"{m // 60:02d}:{m % 60:02d}"
+    m = re.match(r"^\s*(\d{1,2})[:.](\d{2})", str(v or ""))
+    return f"{int(m.group(1)) % 24:02d}:{m.group(2)}" if m else ""
+
+
+def parse_sped_standardwochen_excel(dateien: list) -> str:
+    """Vorlage Tour 1–4.xlsx (Blatt 'Touren', Tagesblöcke Sonntag–Samstag) → Soll je Woche.
+
+    Je Vorlage und Wochentag: Spediteurfahrten (Linie, Tour, Stellzeit) für die
+    Soll-Kosten sowie Touren eigen/Spedition/extern/unbesetzt für Soll-Touren und
+    Soll-Eigenanteil. Die Tagesblöcke werden über die Datums-Kopfzeilen in Spalte B
+    erkannt (in der Vorlage 00:00, im echten Plan das Datum)."""
+    import json as _json
+    import datetime as _dt
+    from io import BytesIO
+
+    wochen, dateinamen, fehler = {}, [], []
+    for pos, datei in enumerate(dateien):
+        try:
+            datei.seek(0)
+            df = pd.read_excel(BytesIO(datei.read()), sheet_name="Touren", header=None)
+        except Exception:
+            continue
+        name = getattr(datei, "name", "") or f"Datei {pos + 1}"
+        kopf = " ".join(_sped_zelle(df.iat[r, c]) for r in range(min(3, len(df))) for c in range(min(4, df.shape[1])))
+        m = re.search(r"\bTour\s*(\d)\b", kopf) or re.search(r"Tour[ _-]*(\d)", name)
+        wnr = m.group(1) if m else str(pos + 1)
+
+        tags = [{"eigen": set(), "sped": 0, "fremd": set(), "offen": set(), "krank": set(), "urlaub": set(), "fahrer": set()}
+                for _ in range(7)]
+        fahrten, tag_idx = [], -1
+        for i, row in enumerate(df.itertuples(index=False, name=None)):
+            if i < 3:
+                continue
+            b = row[1] if len(row) > 1 else None
+            if (isinstance(b, (_dt.time, _dt.datetime, _dt.date, pd.Timestamp))
+                    and not _sped_zelle(row[0]) and not _sped_zelle(row[3] if len(row) > 3 else "")):
+                tag_idx += 1
+                continue
+            if not 0 <= tag_idx <= 6:
+                continue
+            wd = (tag_idx + 6) % 7          # Block 0 = Sonntag → 6, Montag → 0
+            tour = _sped_zelle(row[15] if len(row) > 15 else "")
+            zeit = _sped_zeit(row[8] if len(row) > 8 else "")
+            lkw = _sped_zelle(row[11] if len(row) > 11 else "") or _sped_zelle(row[10] if len(row) > 10 else "")
+            ent, kf_col = None, 2
+            for a, c in ((3, 4), (6, 7)):
+                ent = _sped_match_pair(row[a] if len(row) > a else "", row[c] if len(row) > c else "")
+                if ent:
+                    kf_col = a - 1
+                    break
+            if not ent:
+                _sped_tag_eintrag(tags[wd], row, tour, lkw, zeit, _sped_zelle)
+                continue
+            if not tour and not zeit:
+                continue
+            f = {"nr": ent["nr"], "name": ent["name"], "gruppe": _sped_gruppe(ent["nr"], ent["name"]),
+                 "wd": wd, "tour": tour, "zeit": zeit}
+            kf = _sped_clean_number(row[kf_col] if len(row) > kf_col else "")
+            if kf and kf != ent["nr"]:
+                f["kf"] = kf
+            tnr = _sped_zelle(row[0])
+            if tnr and tnr != tour:
+                f["tnr"] = tnr
+            txt = " ".join(t for t in (_sped_zelle(row[j]) if len(row) > j else "" for j in (1, 2, 12, 13, 16, 17))
+                           if re.search(r"[A-Za-zÄÖÜäöüß]", t))
+            if txt:
+                f["txt"] = txt[:160]
+            if _SPED_ZBV_RE.search(tour):
+                f["zbv"] = 1
+            if _sped_ist_tour(tour):
+                tags[wd]["sped"] += 1
+            fahrten.append(f)
+        if tag_idx < 6:
+            fehler.append(f"{name}: nur {tag_idx + 1} Tagesblöcke erkannt")
+            continue
+        tage = []
+        for wd, t in enumerate(tags):
+            fremd = t["fremd"] - t["eigen"]
+            offen = t["offen"] - t["eigen"] - fremd
+            tage.append({"wd": wd, "eigen": len(t["eigen"]), "sped": t["sped"], "fremd": len(fremd), "offen": len(offen)})
+        wochen[wnr] = {"datei": name, "fahrten": fahrten, "tage": tage}
+        dateinamen.append(name)
+    if not wochen:
+        return _json.dumps({}, ensure_ascii=False)
+    return _json.dumps({"wochen": wochen, "dateien": dateinamen, "fehler": fehler,
+                        "stand": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")}, ensure_ascii=False)
+
+
+# =============================================================================
+# SOLL-/IST-VORGABEN — Zielvereinbarung "Dashboard FP" (Kosten Spediteure,
+# Tourenplanung, Eigenanteil, Krankenquote). Standardwerte hier; überschreibbar
+# per Excel-Upload "Spediteure Soll-Vorgaben" (Blatt "Vorgaben", Spalten
+# Bereich | Schlüssel | Wert) oder lokal im Dashboard über "⚙ Vorgaben".
+# None = kein Soll hinterlegt (Dashboard zeigt "Soll fehlt").
+# =============================================================================
+SPED_FP_VORGABEN = {
+    "eigenanteil_soll": None,       # % eigene Touren an besetzten Touren, z.B. 85
+    "krankenquote_soll": None,      # % Krankheitstage an Personentagen, z.B. 6
+    "tarif_standard": 0.0,          # € je Fahrt, wenn für eine Spedition kein Tarif hinterlegt ist
+    "touren_soll_wd": [None] * 7,   # Mo..So; None = Regelplan automatisch (Median je Wochentag)
+    "budget": {},                   # {"2026-01": 45000} € Spediteurkosten je Monat
+    "tarife": {},                   # Standardtarif je Spedition/Linie, wenn keine Tarifregel greift: {"Kudex": 650}
+    "toleranz": {"touren_pct": 3.0, "eigen_pp": 3.0, "kq_pp": 1.5, "kosten_pct": 5.0},
+    "tarifregeln": [],              # wird unten mit SPED_FP_TARIFREGELN gefüllt
+    "rotation_start": "",           # Sonntag, an dem Vorlage Tour 1 gilt (JJJJ-MM-TT); leer = automatisch erkennen
+}
+
+
+def _tr(sped, bez, preis, touren="", text="", linie="", schicht="", lkw="", abrechnung="fahrt", aktiv=True):
+    return {"spedition": sped, "bez": bez, "preis": preis, "touren": touren, "text": text, "linie": linie,
+            "schicht": schicht, "lkw": lkw, "abrechnung": abrechnung, "aktiv": aktiv}
+
+
+# Tarifregeln je Spedition (Stand Preisliste 10/2026). Reihenfolge = Priorität:
+# die erste passende Regel der Spedition gilt. Bedingungen (alle müssen passen):
+#   touren  Tournummern, x = beliebige Ziffer ("x884", "xx45"), Spalte P oder A
+#   text    Stichworte im Tourenplan-Freitext, "," = oder, "+" = und ("ahaus+rl")
+#   linie   Katalog-Nr. der Untergruppe ("8002")
+#   schicht erste | zweite (2.+ Fahrt der Linie am Tag) | einzel | doppel (≥2 Fahrten am Tag)
+#   lkw     edeka (bei der Spediteur-Zeile steht im Wochenplan eine LKW-Nr., Spalte K/L) | fremd
+#   abrechnung fahrt | tag (Preis je Linie und Tag, auf deren Fahrten aufgeteilt)
+SPED_FP_TARIFREGELN = [
+    _tr("Spedition Meyer", "Meyer SZ (x884)", 899.00, linie="8009"),
+    _tr("Spedition Meyer", "x884", 899.00, touren="x884"),
+    _tr("Spedition Meyer", "Solo 36", 593.00, linie="8002"),
+    _tr("Spedition Meyer", "Solo 30 2te Schicht", 350.00, schicht="zweite"),
+    _tr("Spedition Meyer", "Solo 30", 596.00),
+    # Sped. Elbfracht (vorher Kudex): Linien 1+2 und 3+4 fahren als Schichtpaar (3:00 + 12:00)
+    _tr("Sped. Elbfracht / Kudex", "Doppelschicht 36er", 625.00, linie="8039, 8040, 8045, 8046"),
+    _tr("Sped. Elbfracht / Kudex", "Einschicht 36er", 650.00),
+    _tr("Spedition Ihde", "x885 / 5035 / 1885 Picnic", 595.00, touren="x885, 5035"),
+    _tr("Spedition Ihde", "Standard", 595.00),
+    # Pfenning 1 (19:00) + 2 (5:00) als Doppelschicht: 1.355 € je Tag = 677,50 € je Fahrt
+    _tr("Pfenning", "Doppelschicht (1.355 € je Tag, ½ je Fahrt)", 677.50, linie="8041, 8042"),
+    _tr("Pfenning", "Einschicht Sattel", 825.00, linie="", aktiv=False),
+    _tr("Pfenning", "Einschicht MW", 613.00),
+    _tr("Insellogistik", "Rüg - NFC - MAL - RÜG", 520.00, text="rüg+mal"),
+    _tr("Insellogistik", "RÜG - NFC - RÜG (Rügen Umfuhr)", 495.00, text="rüg"),
+    _tr("Insellogistik", "NFC - MAL - NFC (Malchow Umfuhr)", 520.00, text="mal, machow"),
+    _tr("Insellogistik", "NFC - Neumünster - NFC (NMS Umfuhr)", 517.25, text="nms, neumünster"),
+    _tr("Insellogistik", "Standard (Strecke nicht erkennbar)", 520.00),
+    _tr("Paasch & Reinke", "xx45", 971.90, touren="xx45"),
+    _tr("Paasch & Reinke", "1003, 2001, 3003, 4002, 5003", 633.35, touren="1003, 2001, 3003, 4002, 5003"),
+    _tr("Paasch & Reinke", "1012, 4012", 890.00, touren="1012, 4012"),
+    _tr("Paasch & Reinke", "6001", 917.30, touren="6001"),
+    _tr("Paasch & Reinke", "2012, 3012, 5012", 753.48, touren="2012, 3012, 5012"),
+    _tr("Ch. Holtz", "Touren mit Edeka LKW", 290.00, lkw="edeka"),
+    _tr("Ch. Holtz", "xx886", 1105.00, touren="xx886"),
+    _tr("Ch. Holtz", "1002, 3002, 5002", 950.00, touren="1002, 3002, 5002"),
+    _tr("Ch. Holtz", "4045", 620.00, touren="4045"),
+    _tr("Ch. Holtz", "5010, 6004", 780.00, touren="5010, 6004"),
+    _tr("Ch. Holtz", "4003", 800.00, touren="4003"),
+    _tr("Ch. Holtz", "2002", 830.00, touren="2002"),
+    _tr("Ch. Holtz", "4010", 730.00, touren="4010"),
+    _tr("Ch. Holtz", "1021, 2021, 3021, 5021", 700.00, touren="1021, 2021, 3021, 5021"),
+    _tr("Ch. Holtz", "1005", 770.00, touren="1005"),
+    _tr("Ch. Holtz", "NMS-Shuttle / NMS Umfuhr", 620.00, text="nms, shuttle"),
+    _tr("Ch. Holtz", "Malchow", 620.00, text="malchow, machow, mal"),
+    _tr("Ch. Holtz", "Pfeifer", 600.00, text="pfeifer"),
+    _tr("Zippel Logistik", "x883", 1030.00, touren="x883"),
+    _tr("Zippel Logistik", "Ahaus m. Glandorf o. Borgholzhausen", 1555.00, text="glandorf, borgholzhausen, borkholzhausen"),
+    _tr("Zippel Logistik", "Ahaus (RL) – Elfering Ahaus ist immer Rundlauf", 1380.00, text="ahaus"),
+    _tr("Zippel Logistik", "Ahaus (OneWay)", 800.00, text="ahaus", aktiv=False),
+    _tr("Zippel Logistik", "HUPA MAL Gigaliner (T2)", 980.00, linie="8024"),
+    _tr("Zippel Logistik", "HUPA MAL Sattel", 635.00, text="malchow, machow, mal, hupa"),
+    _tr("deVries", "1010, 2007, 3006, 4009, 5009", 900.00, touren="1010, 2007, 3006, 4009, 5009"),
+    _tr("deVries", "Standard", 900.00),
+]
+
+# Standardwoche (Soll-Einsatz der Spediteure): (Linie, Abfahrtstag, Stellzeit, Tour).
+# Abfahrtstag 0=Mo … 6=So, wie das Datum im Tourenplan. Daraus folgen je Wochentag
+# Soll-Fremdfahrten und – mit den Tarifregeln – die Soll-Kosten.
+_SW_TAGE = {"so": 6, "mo": 0, "di": 1, "mi": 2, "do": 3, "fr": 4, "sa": 5}
+
+
+def _sw(nr, plan):
+    return [{"linie": nr, "wd": _SW_TAGE[t], "zeit": z, "tour": tour} for t, z, tour in plan]
+
+
+SPED_FP_STANDARDWOCHE = (
+    _sw("8001", [("mo", "3:00", "1033"), ("di", "3:00", "2024"), ("mi", "3:30", "3030"), ("do", "3:00", "4033"), ("fr", "3:00", "5033")])
+    + _sw("8002", [("mo", "4:00", "1023"), ("di", "3:00", "2032"), ("mi", "3:00", "3037"), ("do", "3:00", "4025"), ("fr", "4:00", "5023")])
+    + _sw("8003", [("mo", "4:00", "1032"), ("di", "4:00", "2026"), ("mi", "3:00", "3031"), ("do", "4:00", "4035"), ("fr", "4:00", "5032")])
+    + _sw("8004", [("mo", "4:00", "1030"), ("di", "3:00", "2030"), ("mi", "3:00", "3035"), ("do", "4:00", "4031"), ("fr", "4:00", "5038")])
+    + _sw("8005", [("mo", "3:00", "1031"), ("di", "3:00", "2034"), ("mi", "3:00", "3029"), ("do", "3:00", "4024"), ("fr", "3:00", "5028")])
+    + _sw("8006", [("fr", "3:00", "5053")])
+    + _sw("8009", [("mo", "0:00", "1884"), ("di", "0:00", "2884"), ("mi", "0:00", "3884"), ("do", "0:00", "4884"), ("fr", "0:00", "5884")])
+    + _sw("8011", [("so", "18:00", "1003"), ("mo", "18:00", "2001"), ("di", "18:00", "3003"), ("mi", "18:00", "4002"), ("do", "18:00", "5003")])
+    + _sw("8012", [("so", "18:00", "1012"), ("mo", "18:00", "2012"), ("di", "18:00", "3012"), ("mi", "18:00", "4012"), ("do", "18:00", "5012")])
+    + _sw("8013", [("mo", "4:00", "1045"), ("di", "4:00", "2045"), ("mi", "4:00", "3045"), ("do", "4:00", "4045"), ("fr", "4:00", "5045")])
+    + _sw("8019", [("so", "18:00", "1010"), ("mo", "18:00", "2007"), ("di", "18:00", "3006"), ("mi", "16:30", "4009"), ("do", "18:00", "5009"), ("fr", "9:00", "5098")])
+    + _sw("8022", [("mo", "3:00", "1885"), ("di", "3:00", "2885"), ("mi", "3:00", "3885"), ("do", "3:00", "4885"), ("fr", "3:00", "5885")])
+    + _sw("8030", [("so", "8:30", "NMS Umfuhr"), ("so", "13:30", "Rügen Umfuhr"), ("mo", "10:30", "NMS Umfuhr"), ("di", "12:00", "Rügen Umfuhr"),
+                   ("mi", "10:30", "NMS Umfuhr"), ("do", "10:30", "NMS Umfuhr"), ("do", "14:00", "Rügen Umfuhr")])
+    + _sw("8031", [("so", "13:00", "Malchow Umfuhr")])
+    + _sw("8025", [("so", "20:00", "Elfering Ahaus"), ("di", "20:00", "Elfering Ahaus"), ("mi", "20:00", "Elfering Ahaus"), ("do", "20:00", "Elfering Ahaus")])
+    + _sw("8024", [("so", "11:00", "Malchow Umfuhr"), ("mo", "13:00", "Malchow Umfuhr"), ("di", "13:00", "Malchow Umfuhr"), ("mi", "13:00", "Malchow Umfuhr"), ("do", "12:00", "Malchow Umfuhr")])
+    + _sw("8026", [("do", "13:00", "Malchow Umfuhr")])
+    + _sw("8015", [("mo", "0:00", "1886"), ("mi", "0:00", "3886"), ("do", "0:00", "4886"), ("fr", "0:00", "5886")])
+    + _sw("8016", [("so", "8:30", "NMS Umfuhr"), ("so", "13:30", "Malchow Umfuhr"), ("fr", "1:00", "Pfeifer")])
+    + _sw("8017", [("mo", "1:00", "1002"), ("mi", "1:00", "3002"), ("do", "0:00", "NMS-Shuttle"), ("fr", "1:00", "5002")])
+    + _sw("8039", [("mo", "3:00", "1029"), ("di", "3:00", "2033"), ("mi", "3:00", "3028"), ("do", "3:00", "4023"), ("fr", "3:00", "5029")])
+    + _sw("8040", [("mo", "12:00", "1061"), ("di", "12:00", "2062"), ("mi", "12:00", "3061"), ("do", "12:00", "4062"), ("fr", "12:00", "5061")])
+    + _sw("8045", [("mo", "4:00", "1039"), ("di", "3:00", "2027"), ("mi", "4:00", "3024"), ("do", "3:00", "4032"), ("fr", "4:00", "5034"), ("fr", "12:00", "z.b.v. / Sonderaufgaben")])
+    + _sw("8046", [("mo", "12:00", "1062"), ("di", "12:00", "2064"), ("mi", "12:00", "3062"), ("do", "12:00", "4066"), ("fr", "12:00", "5062"), ("fr", "3:00", "z.b.v. / Sonderaufgaben")])
+    + _sw("8041", [("so", "19:00", "1009"), ("mo", "19:00", "2004"), ("di", "19:00", "3009"), ("mi", "19:00", "4006"), ("do", "19:00", "5008")])
+    + _sw("8042", [("mo", "5:00", "1073"), ("di", "5:00", "2073"), ("mi", "5:00", "3073"), ("do", "5:00", "4073"), ("fr", "5:00", "5073")])
+    + _sw("8043", [("mo", "7:00", "1079"), ("di", "7:00", "z.b.v. / Sonderaufgaben"), ("mi", "7:00", "z.b.v. / Sonderaufgaben"),
+                   ("do", "7:00", "z.b.v. / Sonderaufgaben"), ("fr", "7:00", "z.b.v. / Sonderaufgaben")])
+)
+_SPED_KEIN_STANDARD = {("8025", None), ("8043", None), ("8006", None), ("8026", None), ("8031", None),
+                       ("8045", "z.b.v. / Sonderaufgaben"), ("8046", "z.b.v. / Sonderaufgaben"),
+                       ("8009", "5884"), ("8019", "5098"), ("8016", "Pfeifer")}
+SPED_FP_STANDARDWOCHE = [e for e in SPED_FP_STANDARDWOCHE
+                         if (e["linie"], None) not in _SPED_KEIN_STANDARD and (e["linie"], e["tour"]) not in _SPED_KEIN_STANDARD]
+SPED_FP_VORGABEN["standardwoche"] = SPED_FP_STANDARDWOCHE
+
+# Ergänzung zu den Vorlagen Tour 1–4: weitere Standard-Spediteurfahrten (Linie, Tag,
+# Stellzeit, Tour), die in den Vorlagen fehlen. Soll = Vorlage der Woche + Ergänzung;
+# alles darüber = Zusatzfahrt wegen Personalmangel. Kein Standard (= Zusatzfahrt):
+# Zippel T1 Ahaus, Pfenning 3, Elbfracht-z.b.v., Meyer 6, Meyer SZ Fr, deVries 5098,
+# CHT T2 Pfeifer, Zippel T3, Insellogistik 2.
+SPED_FP_ERGAENZUNG = []   # aktuell keine: Standard = nur Vorlage Tour 1–4 (Stand 26.10.2026)
+SPED_FP_VORGABEN["ergaenzung"] = SPED_FP_ERGAENZUNG
+SPED_FP_VORGABEN["tarifregeln"] = SPED_FP_TARIFREGELN
+
+_SPED_MONATE = {"jan": 1, "feb": 2, "mär": 3, "mae": 3, "mar": 3, "apr": 4, "mai": 5, "jun": 6,
+                "jul": 7, "aug": 8, "sep": 9, "okt": 10, "oct": 10, "nov": 11, "dez": 12, "dec": 12}
+
+
+def _sped_vg_num(val):
+    """Zahl aus Excel-Zelle oder deutschem Text (1.234,5 € / 85 %)."""
+    try:
+        if pd.isna(val):
+            return None
+    except Exception:
+        pass
+    if isinstance(val, bool):
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = re.sub(r"[\s€%]", "", str(val or ""))
+    if not s or s.lower() in ("nan", "none", "auto", "automatisch", "-"):
+        return None
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(\.\d{3})+", s):
+        s = s.replace(".", "")
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _sped_vg_monat(val) -> str:
+    """Budget-Schlüssel → 'YYYY-MM' (Datum, 2026-01, 01.2026, Januar 2026)."""
+    import datetime as _dt
+    if isinstance(val, (_dt.date, _dt.datetime, pd.Timestamp)):
+        return f"{val.year:04d}-{val.month:02d}"
+    s = str(val or "").strip().lower()
+    m = re.fullmatch(r"(\d{4})[-/.](\d{1,2})(?:[-/.]\d{1,2})?(?:\s.*)?", s)
+    if m:
+        return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}"
+    m = re.fullmatch(r"(?:\d{1,2}\.)?(\d{1,2})[./](\d{4})", s)
+    if m:
+        return f"{int(m.group(2)):04d}-{int(m.group(1)):02d}"
+    m = re.fullmatch(r"([a-zäöü]+)\.?\s*(\d{4})", s)
+    if m and m.group(1)[:3] in _SPED_MONATE:
+        return f"{int(m.group(2)):04d}-{_SPED_MONATE[m.group(1)[:3]]:02d}"
+    return ""
+
+
+def parse_sped_vorgaben_excel(datei) -> str:
+    """Liest die Soll-Vorgaben (Blatt 'Vorgaben': Bereich | Schlüssel | Wert)."""
+    import json as _json
+    import datetime as _dt
+    from io import BytesIO
+
+    datei.seek(0)
+    raw = datei.read()
+    xl = pd.ExcelFile(BytesIO(raw))
+    sheet = next((s for s in xl.sheet_names if str(s).strip().lower() == "vorgaben"), xl.sheet_names[0])
+    df = pd.read_excel(xl, sheet_name=sheet, header=None)
+
+    vg = _json.loads(_json.dumps(SPED_FP_VORGABEN))
+    start = 0
+    for i in range(min(len(df), 15)):
+        if any(str(v).strip().lower() == "bereich" for v in df.iloc[i].tolist()):
+            start = i + 1
+            break
+    wd_keys = ["mo", "di", "mi", "do", "fr", "sa", "so"]
+    treffer = 0
+    for row in df.iloc[start:].itertuples(index=False, name=None):
+        if len(row) < 3:
+            continue
+        bereich = re.sub(r"[\s_\-]", "", str(row[0] or "")).lower()
+        schl_raw = row[1]
+        schl = str(schl_raw or "").strip()
+        if not bereich or bereich == "nan" or not schl or schl.lower() == "nan":
+            continue
+        wert = _sped_vg_num(row[2])
+        sl = schl.lower()
+        if bereich.startswith("allgemein"):
+            if "eigen" in sl:
+                vg["eigenanteil_soll"] = (wert * 100 if wert is not None and 0 < wert < 1 else wert)
+            elif "krank" in sl:
+                vg["krankenquote_soll"] = (wert * 100 if wert is not None and 0 < wert < 0.25 else wert)
+            elif "tarif" in sl or "standard" in sl:
+                vg["tarif_standard"] = wert or 0.0
+            elif "rotation" in sl or "tour 1" in sl or "woche 1" in sl:
+                import datetime as _dt2
+                d = pd.to_datetime(row[2], errors="coerce", dayfirst=True)
+                if pd.isna(d):
+                    continue
+                vg["rotation_start"] = (d - _dt2.timedelta(days=(d.weekday() + 1) % 7)).strftime("%Y-%m-%d")
+            else:
+                continue
+        elif bereich.startswith("toleranz"):
+            key = ("touren_pct" if "tour" in sl else "eigen_pp" if "eigen" in sl
+                   else "kq_pp" if "krank" in sl else "kosten_pct" if "kost" in sl else "")
+            if not key or wert is None:
+                continue
+            vg["toleranz"][key] = wert
+        elif bereich.startswith("touren") or bereich.startswith("soll"):
+            idx = next((i for i, k in enumerate(wd_keys) if sl.startswith(k)), -1)
+            if idx < 0:
+                continue
+            vg["touren_soll_wd"][idx] = wert
+        elif bereich.startswith("budget"):
+            mk = _sped_vg_monat(schl_raw)
+            if not mk or wert is None:
+                continue
+            vg["budget"][mk] = wert
+        elif bereich.startswith("tarif"):
+            if wert is None:
+                continue
+            nr = _sped_clean_number(schl_raw)
+            vg["tarife"][nr or schl] = wert
+        else:
+            continue
+        treffer += 1
+    sw = _sped_standardwoche_lesen(xl)
+    if sw is not None:
+        vg["standardwoche"] = sw
+        treffer += len(sw) or 1
+    erg = _sped_standardwoche_lesen(xl, "ergaenzung")
+    if erg is not None:
+        vg["ergaenzung"] = erg
+        treffer += len(erg) or 1
+    regeln = _sped_tarifregeln_lesen(xl)
+    if regeln is not None:
+        vg["tarifregeln"] = regeln
+        treffer += len(regeln) or 1
+    if not treffer:
+        raise ValueError("Keine Vorgaben erkannt – erwartet Blatt 'Vorgaben' (Bereich | Schlüssel | Wert) oder 'Tarifregeln'")
+    vg["quelle"] = "excel"
+    vg["datei"] = getattr(datei, "name", "") or ""
+    vg["stand"] = _dt.datetime.now().strftime("%d.%m.%Y %H:%M")
+    return _json.dumps(vg, ensure_ascii=False)
+
+
+def _sped_standardwoche_lesen(xl, blatt="standardwoche"):
+    """Blatt 'Standardwoche' bzw. 'Ergaenzung': Linie | Wochentag | Stellzeit | Tour. None, wenn das Blatt fehlt."""
+    sheet = next((s for s in xl.sheet_names
+                  if re.sub(r"[\s_]", "", str(s)).lower().replace("ä", "ae") == blatt), None)
+    if sheet is None:
+        return None
+    df = pd.read_excel(xl, sheet_name=sheet, header=None)
+    start = 0
+    for i in range(min(len(df), 10)):
+        if any(str(v).strip().lower() == "linie" for v in df.iloc[i].tolist()):
+            start = i + 1
+            break
+    out = []
+    for row in df.iloc[start:].itertuples(index=False, name=None):
+        if len(row) < 4:
+            continue
+        nr = _sped_clean_number(row[0])
+        tag = str(row[1] or "").strip().lower()[:2]
+        if not nr or tag not in _SW_TAGE:
+            continue
+        z = row[2]
+        if hasattr(z, "strftime"):
+            z = z.strftime("%H:%M")
+        z = "" if str(z).lower() in ("nan", "none", "nat") else str(z).strip()
+        t = row[3]
+        if isinstance(t, float) and t.is_integer():
+            t = int(t)
+        t = "" if str(t).lower() in ("nan", "none") else str(t).strip()
+        out.append({"linie": nr, "wd": _SW_TAGE[tag], "zeit": z, "tour": t})
+    return out
+
+
+def _sped_tarifregeln_lesen(xl):
+    """Blatt 'Tarifregeln': Spedition | Bezeichnung | Preis € | Touren | Text | Linie | Schicht | LKW | Abrechnung | Aktiv.
+    Liefert None, wenn das Blatt fehlt (dann bleiben die Standardregeln)."""
+    sheet = next((s for s in xl.sheet_names if re.sub(r"[\s_]", "", str(s)).lower() == "tarifregeln"), None)
+    if sheet is None:
+        return None
+    df = pd.read_excel(xl, sheet_name=sheet, header=None)
+    head_i, cols = None, {}
+    for i in range(min(len(df), 15)):
+        vals = [re.sub(r"[^a-zäöü]", "", str(v).lower()) for v in df.iloc[i].tolist()]
+        if "spedition" in vals and any(v.startswith("preis") for v in vals):
+            head_i = i
+            for j, v in enumerate(vals):
+                for key, pref in (("spedition", "spedition"), ("bez", "bezeichnung"), ("preis", "preis"),
+                                  ("touren", "tour"), ("text", "text"), ("linie", "linie"), ("schicht", "schicht"),
+                                  ("lkw", "lkw"), ("abrechnung", "abrechnung"), ("aktiv", "aktiv")):
+                    if v.startswith(pref) and key not in cols:
+                        cols[key] = j
+            break
+    if head_i is None:
+        return None
+
+    def _cell(row, key):
+        j = cols.get(key)
+        if j is None or j >= len(row):
+            return ""
+        v = row[j]
+        try:
+            if pd.isna(v):
+                return ""
+        except Exception:
+            pass
+        if isinstance(v, float) and v.is_integer():
+            v = int(v)
+        return str(v).strip()
+
+    regeln = []
+    for row in df.iloc[head_i + 1:].itertuples(index=False, name=None):
+        sped = _cell(row, "spedition")
+        preis = _sped_vg_num(row[cols["preis"]]) if cols.get("preis") is not None and cols["preis"] < len(row) else None
+        if not sped or preis is None:
+            continue
+        schicht = _cell(row, "schicht").lower()
+        schicht = next((k for k in ("erste", "zweite", "einzel", "doppel") if schicht.startswith(k[:3])), "")
+        lkw = _cell(row, "lkw").lower()
+        lkw = "edeka" if lkw.startswith("edeka") else ("fremd" if lkw.startswith("fremd") else "")
+        abr = "tag" if _cell(row, "abrechnung").lower().startswith("tag") else "fahrt"
+        aktiv = _cell(row, "aktiv").lower() not in ("nein", "n", "0", "false", "falsch", "inaktiv")
+        regeln.append(_tr(sped, _cell(row, "bez") or sped, preis, _cell(row, "touren"), _cell(row, "text"),
+                          _cell(row, "linie"), schicht, lkw, abr, aktiv))
+    return regeln
+
+
+def _sped_merge_vorgaben(sped_json: str, vorgaben_json: str = "", standardwochen_json: str = "") -> str:
+    """Bettet die Soll-Vorgaben in die Spediteur-Daten ein (Schlüssel 'vorgaben')."""
+    try:
+        sped = json.loads(sped_json or "{}")
+    except Exception:
+        sped = {}
+    if not isinstance(sped, dict):
+        sped = {}
+    sped.setdefault("katalog", [])
+    sped.setdefault("fahrten", [])
+    vg = json.loads(json.dumps(SPED_FP_VORGABEN))
+    vg.update({"quelle": "standard", "datei": "", "stand": ""})
+    if vorgaben_json:
+        try:
+            up = json.loads(vorgaben_json)
+            if isinstance(up, dict):
+                vg.update(up)
+        except Exception:
+            pass
+    sped["vorgaben"] = vg
+    sped["katalog_alle"] = [{"nr": nr, "name": name, "gruppe": _sped_gruppe(nr, name)} for nr, name in SPEDITEUR_KATALOG]
+    try:
+        sw = json.loads(standardwochen_json or "{}")
+    except Exception:
+        sw = {}
+    if isinstance(sw, dict) and sw.get("wochen"):
+        sped["standardwochen"] = sw
+    return json.dumps(sped, ensure_ascii=False)
 
 
 def parse_versp_abfahrt_excel(dateien: list) -> str:
@@ -34198,6 +34845,7 @@ _SPED_OVERVIEW_RUNTIME_PATCH = r"""
 // Statistik-Bereiche: Kennzahlen inkl. Vorjahr, Entwicklung (Monat/Tag),
 // Kennzahlen je Spedition, Wochentag-Matrix, Abfahrtszeiten, Zeitmatrix,
 // Touren-Analyse, LKW-Einsatz. Alle Bereiche folgen Jahr/Monat/Spedition.
+// Zusätzlich: Ansicht „Soll / Ist · Dashboard FP“ (spedFpRender, siehe unten).
 var SPED_OV_JAHR = "";
 var SPED_OV_MONAT = "all";
 var SPED_OV_FILTER = "all";
@@ -35188,14 +35836,14 @@ function spedOvExportExcel(){
 }
 
 // ── Rendering ───────────────────────────────────────────────────────────────
-function spedRender(){
+function spedRenderStat(){
   var content=document.getElementById("sped-content");
   if(!content) return;
   spedOvTipInit();
   var all=spedOvRowsBase();
   if(!all.length){
     var st=document.getElementById("sped-stats"); if(st) st.innerHTML="";
-    content.innerHTML='<div style="color:#94a3b8;padding:70px;text-align:center;font-size:14px;">Keine Spediteur-Daten – bitte Touren-Dateien (Excel) in Streamlit hochladen.</div>';
+    content.innerHTML='<div style="max-width:1500px;margin:0 auto;">'+spedFpTabsHtml()+'<div style="color:#94a3b8;padding:70px;text-align:center;font-size:14px;">Keine Spediteur-Daten – bitte Touren-Dateien (Excel) in Streamlit hochladen.</div></div>';
     return;
   }
   var base=spedOvFilteredRows(false);
@@ -35221,6 +35869,7 @@ function spedRender(){
     : '<div style="'+SPED_OV_CARD+'color:#94a3b8;padding:40px;text-align:center;font-size:13px;">Keine Fahrten im gewählten Zeitraum.</div>';
   content.innerHTML =
     '<div style="max-width:1500px;margin:0 auto;">'
+    + spedFpTabsHtml()
     + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:4px;">'
     + '<div><div style="font-size:15px;font-weight:950;color:#0f172a;">Übersicht '+spedOvEsc(period)+(SPED_OV_FILTER!=="all" ? ' · '+spedOvEsc(SPED_OV_FILTER) : '')+'</div><div style="font-size:10px;color:#64748b;margin-top:2px;">Alle Statistiken folgen Jahr, Monat und Spedition. Die Suche filtert nur die Fahrtenliste.</div></div>'
     + '<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;">'
@@ -35236,7 +35885,8 @@ function spedRender(){
 
 function spedInit(){
   var all=spedOvRowsBase();
-  var years=spedOvUniq(all.map(function(r){return String(r.jahr||"");})).sort().reverse();
+  var tageY=(SPED_DATA && Array.isArray(SPED_DATA.tage)) ? SPED_DATA.tage.map(function(t){return String(t.iso||"").slice(0,4);}) : [];
+  var years=spedOvUniq(all.map(function(r){return String(r.jahr||"");}).concat(tageY)).sort().reverse();
   var ySel=document.getElementById("sped-year");
   var mSel=document.getElementById("sped-month");
   var fSel=document.getElementById("sped-filter");
@@ -35269,6 +35919,1541 @@ function spedSetJahr(v){
 }
 function spedSetMonat(v){ SPED_OV_MONAT=String(v||"all"); SPED_OV_SEARCH=""; spedRender(); }
 function spedSetSped(v){ SPED_OV_FILTER=String(v||"all"); SPED_OV_SEARCH=""; spedRender(); }
+// ── Spediteure: Soll / Ist (Zielvereinbarung „Dashboard FP") ────────────────
+// Kennzahlen: Kosten Spediteure · Tourenplanung · Eigenanteil · Krankenquote.
+// Datenbasis: SPED_DATA.tage (Tagesauswertung der Tourenpläne),
+// SPED_DATA.fahrten (Spediteurfahrten) und SPED_DATA.vorgaben (Soll-Werte).
+// Lokale Änderungen der Vorgaben liegen nur in diesem Browser (localStorage)
+// und lassen sich als Excel für den Streamlit-Upload exportieren.
+var SPED_FP_LS_KEY = "nfc_sped_fp_vorgaben_v1";
+var SPED_FP_VIEW_KEY = "nfc_sped_view";
+var SPED_OV_VIEW = (function(){ try{ return localStorage.getItem(SPED_FP_VIEW_KEY) === "stat" ? "stat" : "soll"; }catch(e){ return "soll"; } })();
+var SPED_FP_EDIT = false;
+var SPED_FP_DRAFT = null;
+var SPED_FP_MODEL = null;
+var SPED_FP_C = {eigen:"#1e6091", sped:"#c2410c", fremd:"#e0a526", offen:"#cbd5e1", soll:"#0f172a",
+                 ok:"#15803d", warn:"#b45309", bad:"#dc2626", na:"#94a3b8"};
+var SPED_FP_BAR = {ok:"#4f9d69", warn:"#e0a526", bad:"#d9534f", na:"#b8c4d2"};
+var SPED_FP_AMP_TXT = {ok:"im Ziel", warn:"knapp", bad:"außerhalb", na:"kein Soll"};
+var SPED_FP_AMP_BG = {ok:"#f0fdf4", warn:"#fffbeb", bad:"#fef2f2", na:"#f1f5f9"};
+var SPED_FP_TOL_LABEL = {touren_pct:"Touren ± %", eigen_pp:"Eigenanteil − pp", kq_pp:"Krankenquote + pp", kosten_pct:"Kosten + %"};
+
+// ── Zahlen & Format ─────────────────────────────────────────────────────────
+function spedFpParseNum(s){
+  if(s == null) return null;
+  if(typeof s === "number") return isFinite(s) ? s : null;
+  var t = String(s).replace(/[\s€%]/g, "");
+  if(!t || /^(auto|automatisch|-)$/i.test(t)) return null;
+  if(t.indexOf(",") >= 0) t = t.replace(/\./g, "").replace(",", ".");
+  else if(/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+  var n = parseFloat(t);
+  return isFinite(n) ? n : null;
+}
+function spedFpEur(v){
+  if(v == null || isNaN(v)) return "–";
+  return Number(v).toLocaleString("de-DE", {maximumFractionDigits:0}) + " €";
+}
+function spedFpEurP(v){
+  if(v == null || isNaN(v)) return "–";
+  var n = Math.round(Number(v) * 100) / 100;
+  return n.toLocaleString("de-DE", {minimumFractionDigits:(n % 1 ? 2 : 0), maximumFractionDigits:2}) + " €";
+}
+function spedFpEurSigned(v){
+  if(v == null || isNaN(v)) return "–";
+  var r = Math.round(v);
+  return (r > 0 ? "+" : r < 0 ? "−" : "±") + Math.abs(r).toLocaleString("de-DE") + " €";
+}
+function spedFpPct(f, d){
+  if(f == null || isNaN(f)) return "–";
+  return spedOvDec(f * 100, d == null ? 1 : d) + " %";
+}
+function spedFpPP(f){
+  if(f == null || isNaN(f)) return "–";
+  var v = Math.round(f * 1000) / 10;
+  return (v > 0 ? "+" : v < 0 ? "−" : "±") + spedOvDec(Math.abs(v), 1) + " pp";
+}
+function spedFpSigned(v, d){
+  if(v == null || isNaN(v)) return "–";
+  var r = d ? Math.round(v * Math.pow(10, d)) / Math.pow(10, d) : Math.round(v);
+  return (r > 0 ? "+" : r < 0 ? "−" : "±") + spedOvDec(Math.abs(r), d || 0);
+}
+function spedFpRelPct(ist, soll){
+  if(ist == null || soll == null || !soll) return "";
+  var p = (ist - soll) / soll * 100;
+  return (p > 0 ? "+" : p < 0 ? "−" : "±") + spedOvDec(Math.abs(p), 1) + " %";
+}
+function spedFpFmtIn(v){
+  if(v == null || v === "") return "";
+  return String(Math.round(Number(v) * 100) / 100).replace(".", ",");
+}
+function spedFpMedian(a){
+  if(!a || !a.length) return null;
+  var s = a.slice().sort(spedOvNumSort), h = Math.floor(s.length / 2);
+  return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2;
+}
+
+// ── Vorgaben ────────────────────────────────────────────────────────────────
+function spedFpDefaults(){
+  return {eigenanteil_soll:null, krankenquote_soll:null, tarif_standard:0,
+          touren_soll_wd:[null,null,null,null,null,null,null], budget:{}, tarife:{},
+          toleranz:{touren_pct:3, eigen_pp:3, kq_pp:1.5, kosten_pct:5}, tarifregeln:[], standardwoche:[], ergaenzung:[], rotation_start:"",
+          quelle:"standard", datei:"", stand:""};
+}
+var SPED_FP_SCHICHT = {"":"egal", erste:"1. Fahrt", zweite:"2.+ Fahrt", einzel:"Einschicht", doppel:"Doppelschicht"};
+var SPED_FP_LKW = {"":"egal", edeka:"Edeka-LKW", fremd:"eigener LKW Sped."};
+function spedFpNormRegel(r){
+  r = (r && typeof r === "object") ? r : {};
+  var sch = String(r.schicht || "").toLowerCase(), lk = String(r.lkw || "").toLowerCase();
+  return {spedition:String(r.spedition || "").trim(), bez:String(r.bez || "").trim(), preis:spedFpParseNum(r.preis),
+          touren:String(r.touren == null ? "" : r.touren).trim(), text:String(r.text || "").trim(), linie:String(r.linie == null ? "" : r.linie).trim(),
+          schicht:SPED_FP_SCHICHT[sch] != null ? sch : "", lkw:SPED_FP_LKW[lk] != null ? lk : "",
+          abrechnung:String(r.abrechnung || "").toLowerCase() === "tag" ? "tag" : "fahrt",
+          aktiv:!(r.aktiv === false || /^(nein|n|0|false|falsch|inaktiv)$/i.test(String(r.aktiv)))};
+}
+function spedFpNorm(v){
+  var d = spedFpDefaults(), i;
+  v = (v && typeof v === "object") ? v : {};
+  d.eigenanteil_soll = spedFpParseNum(v.eigenanteil_soll);
+  d.krankenquote_soll = spedFpParseNum(v.krankenquote_soll);
+  d.tarif_standard = spedFpParseNum(v.tarif_standard) || 0;
+  var wd = Array.isArray(v.touren_soll_wd) ? v.touren_soll_wd : [];
+  for(i=0;i<7;i++){ var n = spedFpParseNum(wd[i]); d.touren_soll_wd[i] = (n != null && n >= 0) ? n : null; }
+  var b = (v.budget && typeof v.budget === "object") ? v.budget : {};
+  Object.keys(b).forEach(function(k){ var n = spedFpParseNum(b[k]); if(n != null && /^\d{4}-\d{2}$/.test(k)) d.budget[k] = n; });
+  var t = (v.tarife && typeof v.tarife === "object") ? v.tarife : {};
+  Object.keys(t).forEach(function(k){ var n = spedFpParseNum(t[k]); if(n != null && String(k).trim()) d.tarife[String(k).trim()] = n; });
+  var tol = (v.toleranz && typeof v.toleranz === "object") ? v.toleranz : {};
+  Object.keys(d.toleranz).forEach(function(k){ var n = spedFpParseNum(tol[k]); if(n != null && n >= 0) d.toleranz[k] = n; });
+  d.tarifregeln = (Array.isArray(v.tarifregeln) ? v.tarifregeln : []).map(spedFpNormRegel)
+    .filter(function(r){ return r.spedition || r.bez || r.preis != null; });
+  function swList(a){
+    return (Array.isArray(a) ? a : []).map(function(e){
+      e = e || {};
+      var wd = parseInt(e.wd, 10);
+      return {linie:String(e.linie == null ? "" : e.linie).replace(/\.0+$/, "").trim(), wd:(wd >= 0 && wd <= 6) ? wd : -1,
+              zeit:String(e.zeit || "").trim(), tour:String(e.tour == null ? "" : e.tour).trim()};
+    }).filter(function(e){ return e.linie && e.wd >= 0; });
+  }
+  d.standardwoche = swList(v.standardwoche);
+  d.ergaenzung = swList(v.ergaenzung);
+  d.rotation_start = /^\d{4}-\d{2}-\d{2}$/.test(String(v.rotation_start || "")) ? spedFpWeekSun(String(v.rotation_start)) : "";
+  d.quelle = String(v.quelle || "standard"); d.datei = String(v.datei || ""); d.stand = String(v.stand || "");
+  return d;
+}
+function spedFpWeekSun(iso){
+  var p = String(iso || "").split("-");
+  if(p.length !== 3) return "";
+  var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  return d.toISOString().slice(0, 10);
+}
+function spedFpLsGet(){ try{ var s = localStorage.getItem(SPED_FP_LS_KEY); return s ? JSON.parse(s) : null; }catch(e){ return null; } }
+function spedFpLsSet(o){
+  try{ if(o == null) localStorage.removeItem(SPED_FP_LS_KEY); else localStorage.setItem(SPED_FP_LS_KEY, JSON.stringify(o)); return true; }
+  catch(e){ return false; }
+}
+function spedFpEmbedded(){ return spedFpNorm(SPED_DATA && SPED_DATA.vorgaben); }
+function spedFpBasis(emb){ return emb.quelle + "|" + emb.stand + "|" + emb.datei; }
+// Lokale Änderungen gelten nur, solange keine neueren Vorgaben eingebettet wurden.
+function spedFpVorgaben(){
+  var emb = spedFpEmbedded(), loc = spedFpLsGet();
+  if(loc && loc.vorgaben && String(loc.basis || "") === spedFpBasis(emb)){
+    var v = spedFpNorm(loc.vorgaben);
+    v.quelle = "lokal"; v.stand = String(loc.gespeichert || ""); v.datei = emb.datei;
+    return v;
+  }
+  return emb;
+}
+function spedFpTarifMap(V){
+  var m = {};
+  Object.keys(V.tarife || {}).forEach(function(k){ m[String(k).trim().toLowerCase()] = +V.tarife[k]; });
+  return m;
+}
+// Reihenfolge: Linie (Nr.) → Untergruppe (Name) → Spedition → Standardtarif
+function spedFpTarifFor(map, V, r){
+  var ks = [String(r.nr || ""), String(r.name || ""), spedOvGroup(r)];
+  for(var i=0;i<ks.length;i++){
+    var k = ks[i].trim().toLowerCase();
+    if(k && map[k] != null) return {v:map[k], src:(i === 2 ? "gruppe" : "linie")};
+  }
+  if(V.tarif_standard) return {v:+V.tarif_standard, src:"standard"};
+  return {v:0, src:"fehlt"};
+}
+// ── Tarifregeln ─────────────────────────────────────────────────────────────
+function spedFpNormKey(s){
+  s = String(s || "").toLowerCase().replace(/ä/g,"ae").replace(/ö/g,"oe").replace(/ü/g,"ue").replace(/ß/g,"ss");
+  s = s.replace(/\([^)]*\)/g, " ").replace(/\b(spedition|sped|logistik|gmbh|kg|und)\b/g, " ").replace(/[^a-z0-9]+/g, "");
+  return ({cht:"chholtz", holtz:"chholtz", paasch:"paaschreinke", reinke:"paaschreinke", kudex:"elbfracht"})[s] || s;
+}
+function spedFpTourCode(v){
+  var t = String(v == null ? "" : v).trim().replace(/\.0+$/, "");
+  if(/^\d+$/.test(t)) return t;
+  var m = /(?:^|\D)(\d{3,6})(?:\D|$)/.exec(t);
+  return m ? m[1] : "";
+}
+function spedFpEscRe(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function spedFpCompileRegeln(list){
+  return (list || []).map(function(r, i){
+    var R = {}; for(var k in r) R[k] = r[k];
+    R.idx = i;
+    R._sks = String(r.spedition || "").split("/").map(spedFpNormKey).filter(Boolean);
+    R._tours = String(r.touren || "").split(/[,;\/\s]+/).filter(Boolean).map(function(tok){
+      tok = tok.toLowerCase();
+      if(/^[x\d]+$/.test(tok) && /\d/.test(tok)){
+        var lead = /^x+/.exec(tok), rest = tok.replace(/^x+/, "");
+        return new RegExp("^" + (lead ? "\\d+" : "") + rest.replace(/x/g, "\\d") + "$");
+      }
+      var d = tok.replace(/\D/g, "");
+      return d ? new RegExp("^" + d + "$") : null;
+    }).filter(Boolean);
+    R._text = String(r.text || "").split(",").map(function(grp){
+      return grp.split("+").map(function(kw){ return kw.trim().toLowerCase(); }).filter(Boolean)
+        .map(function(kw){ return new RegExp("(^|[^a-z0-9äöüß])" + spedFpEscRe(kw), "i"); });
+    }).filter(function(g){ return g.length; });
+    R._lin = String(r.linie || "").split(/[,;\s]+/).filter(Boolean).map(function(l){ return /^\d+$/.test(l) ? l : spedFpNormKey(l); });
+    return R;
+  });
+}
+function spedFpRegelPasst(R, r, gk, si){
+  if(R._sks.length && !R._sks.some(function(sk){
+    return (gk && (sk === gk || gk.indexOf(sk) === 0 || sk.indexOf(gk) === 0)) || sk === String(r.nr || "") || sk === spedFpNormKey(r.name);
+  })) return false;
+  if(R._lin.length && !R._lin.some(function(l){ return l === String(r.nr || "") || l === String(r.kf || "") || l === spedFpNormKey(r.name); })) return false;
+  if(R._tours.length){
+    var codes = [spedFpTourCode(r.tour), spedFpTourCode(r.tnr)].filter(Boolean);
+    if(!codes.some(function(c){ return R._tours.some(function(re){ return re.test(c); }); })) return false;
+  }
+  if(R._text.length){
+    var hay = [r.tour, r.tnr, r.txt].join(" ").toLowerCase();
+    if(!R._text.some(function(g){ return g.every(function(re){ return re.test(hay); }); })) return false;
+  }
+  if(R.lkw === "edeka" && !r.elkw) return false;
+  if(R.lkw === "fremd" && r.elkw) return false;
+  if(R.schicht){
+    var n = si ? si.n : 1, pos = si ? si.pos : 0;
+    if(R.schicht === "erste" && pos !== 0) return false;
+    if(R.schicht === "zweite" && pos < 1) return false;
+    if(R.schicht === "einzel" && n !== 1) return false;
+    if(R.schicht === "doppel" && n < 2) return false;
+  }
+  return true;
+}
+// Preis je Fahrt: erste passende Tarifregel → Standardtarif (Spedition/Linie) → allgemeiner Standard.
+function spedFpPreise(rows, V){
+  var regeln = spedFpCompileRegeln(V.tarifregeln), tmap = spedFpTarifMap(V), unit = {}, si = new Array(rows.length);
+  rows.forEach(function(r, i){ var k = String(r.nr || r.name) + "|" + r.iso; (unit[k] || (unit[k] = [])).push(i); });
+  Object.keys(unit).forEach(function(k){
+    var idx = unit[k].slice().sort(function(a, b){
+      var za = rows[a].zeit || "99:99", zb = rows[b].zeit || "99:99";
+      return za < zb ? -1 : (za > zb ? 1 : a - b);
+    });
+    idx.forEach(function(i, pos){ si[i] = {pos:pos, n:idx.length}; });
+  });
+  var out = rows.map(function(r, i){
+    var gk = spedFpNormKey(spedOvGroup(r));
+    for(var j=0;j<regeln.length;j++){
+      var R = regeln[j];
+      if(!R.aktiv || R.preis == null) continue;
+      if(spedFpRegelPasst(R, r, gk, si[i])) return {v:R.preis, src:"regel", regel:j};
+    }
+    var tf = spedFpTarifFor(tmap, V, r);
+    return {v:tf.v, src:tf.src, regel:-1};
+  });
+  var tagG = {};
+  out.forEach(function(o, i){
+    if(o.regel >= 0 && regeln[o.regel].abrechnung === "tag"){
+      var k = o.regel + "|" + String(rows[i].nr || rows[i].name) + "|" + rows[i].iso;
+      (tagG[k] || (tagG[k] = [])).push(i);
+    }
+  });
+  Object.keys(tagG).forEach(function(k){ var g = tagG[k]; g.forEach(function(i){ out[i].v = out[i].v / g.length; }); });
+  return {preise:out, regeln:regeln};
+}
+function spedFpZeitNorm(z){
+  var m = /^(\d{1,2})[:.](\d{2})/.exec(String(z || "").trim());
+  return m ? String(+m[1]).padStart(2, "0") + ":" + m[2] : "";
+}
+var SPED_FP_ZBV_RE = /z\.?\s*b\.?\s*v|sonderaufgabe/i;
+// Standardwoche: je Wochentag Soll-Fahrten (ohne z.b.v.) und Soll-Kosten über die Tarifregeln
+function spedFpKatRows(list, isoPre, extra){
+  var kat = {};
+  ((SPED_DATA && SPED_DATA.katalog_alle) || []).concat((SPED_DATA && SPED_DATA.katalog) || []).forEach(function(k){ kat[String(k.nr)] = k; });
+  spedOvRowsBase().forEach(function(r){ if(!kat[r.nr]) kat[r.nr] = {nr:r.nr, name:r.name, gruppe:r.gruppe}; });
+  return (list || []).map(function(e){
+    var k = kat[e.linie] || {nr:e.linie, name:"Linie " + e.linie, gruppe:"Linie " + e.linie};
+    var o = {nr:String(k.nr), name:k.name, gruppe:k.gruppe, tour:e.tour, zeit:spedFpZeitNorm(e.zeit), iso:isoPre + e.wd, wdi:e.wd,
+             zbv:SPED_FP_ZBV_RE.test(e.tour) ? 1 : 0, txt:""};
+    for(var x in (extra || {})) o[x] = extra[x];
+    return o;
+  });
+}
+function spedFpStdWoche(V){
+  var rows = spedFpKatRows(V.standardwoche, "std-");
+  var P = spedFpPreise(rows, V), z7 = function(){ return [0,0,0,0,0,0,0]; };
+  var S = {has:rows.length > 0, kosten:z7(), fremd:z7(), fahrten:z7(), ohne:0, rows:rows, preise:P.preise, regeln:P.regeln};
+  rows.forEach(function(r, i){
+    S.kosten[r.wdi] += P.preise[i].v; S.fahrten[r.wdi]++;
+    if(!r.zbv) S.fremd[r.wdi]++;
+    if(P.preise[i].src === "fehlt") S.ohne++;
+  });
+  S.wocheKosten = S.kosten.reduce(function(a, b){ return a + b; }, 0);
+  S.wocheFahrten = S.fahrten.reduce(function(a, b){ return a + b; }, 0);
+  return S;
+}
+function spedFpStdPreis(rows, V){
+  var P = spedFpPreise(rows, V), z7 = function(){ return [0,0,0,0,0,0,0]; };
+  var S = {kosten:z7(), fremd:z7(), fahrten:z7(), touren:null, ohne:0, rows:rows, preise:P.preise};
+  rows.forEach(function(r, i){
+    var pr = P.preise[i];
+    S.kosten[r.wdi] += pr.v; S.fahrten[r.wdi]++;
+    if(!r.zbv) S.fremd[r.wdi]++;
+    if(pr.src === "fehlt") S.ohne++;
+  });
+  S.wocheKosten = S.kosten.reduce(function(a, b){ return a + b; }, 0);
+  S.wocheFahrten = S.fahrten.reduce(function(a, b){ return a + b; }, 0);
+  return S;
+}
+function spedFpCode(t){
+  return spedFpTourCode(t) || String(t || "").toLowerCase().replace(/[^a-z0-9äöüß]+/g, "");
+}
+// Ist-Fahrten eines Tages gegen den Standard abgleichen: gleiche Linie+Tour, dann gleiche
+// Linie, dann gleiche Spedition. Was übrig bleibt, ist Zusatzfahrt (Personalmangel).
+function spedFpAbgleich(trips, S, wd){
+  if(!S.byWd){
+    S.byWd = [[],[],[],[],[],[],[]];
+    S.rows.forEach(function(r, i){
+      S.byWd[r.wdi].push({line:String(r.kf || r.nr || ""), grp:r.gruppe, code:spedFpCode(r.tour), v:S.preise[i].v, zbv:r.zbv ? 1 : 0, r:r});
+    });
+  }
+  var std = S.byWd[wd].map(function(s){ return {s:s, used:false}; }), act = trips.map(function(t){ return {t:t, used:false}; });
+  [function(a, b){ return a.line === b.line && a.code === b.code; },
+   function(a, b){ return a.line === b.line; },
+   function(a, b){ return a.grp === b.grp; }].forEach(function(eq){
+    act.forEach(function(a){
+      if(a.used) return;
+      for(var j=0;j<std.length;j++){ if(!std[j].used && eq(a.t, std[j].s)){ std[j].used = true; a.used = true; return; } }
+    });
+  });
+  return {extra:act.filter(function(a){ return !a.used; }).map(function(a){ return a.t; }),
+          ausfall:std.filter(function(s){ return !s.used; }).map(function(s){ return s.s; })};
+}
+function spedFpSig(wd, r){
+  var code = spedFpTourCode(r.tour) || String(r.tour || "").toLowerCase().replace(/[^a-z0-9äöüß]+/g, "");
+  return wd + "|" + String(r.kf || r.nr || "") + "|" + code;
+}
+// Alle Standardwochen: Vorlagen Tour 1–4 (Upload Tourzuordnung) oder manuelle Standardwoche
+function spedFpStdAll(V){
+  var SW = SPED_DATA && SPED_DATA.standardwochen, z7 = function(){ return [0,0,0,0,0,0,0]; };
+  var A = {has:false, mode:"", keys:[], v:{}, avg:null, ohne:0, dateien:[], stand:""};
+  if(SW && SW.wochen && Object.keys(SW.wochen).length){
+    A.mode = "vorlagen"; A.dateien = SW.dateien || []; A.stand = SW.stand || "";
+    var ergFremd = [0,0,0,0,0,0,0];
+    (V.ergaenzung || []).forEach(function(e){ if(!SPED_FP_ZBV_RE.test(e.tour)) ergFremd[e.wd]++; });
+    A.erg = V.ergaenzung || [];
+    Object.keys(SW.wochen).sort().forEach(function(k){
+      var W = SW.wochen[k];
+      var rows = (W.fahrten || []).map(function(f){
+        return {nr:String(f.nr), name:f.name, gruppe:f.gruppe, kf:f.kf || "", tour:f.tour || "", tnr:f.tnr || "", txt:f.txt || "",
+                zeit:spedFpZeitNorm(f.zeit), iso:"std" + k + "-" + f.wd, wdi:+f.wd, zbv:f.zbv ? 1 : 0};
+      }).concat(spedFpKatRows(V.ergaenzung, "std" + k + "-", {erg:1}));
+      var S = spedFpStdPreis(rows, V);
+      S.touren = z7(); S.fremd = z7(); S.eigen = z7();
+      (W.tage || []).forEach(function(t){
+        var w = +t.wd;
+        S.touren[w] = (+t.eigen || 0) + (+t.sped || 0) + (+t.fremd || 0) + (+t.offen || 0);
+        S.fremd[w] = (+t.sped || 0) + (+t.fremd || 0) + ergFremd[w];
+        S.eigen[w] = +t.eigen || 0;
+      });
+      S.key = k; S.label = "Tour " + k; S.datei = W.datei || "";
+      S.sig = {};
+      rows.forEach(function(r){ S.sig[spedFpSig(r.wdi, r)] = 1; });
+      A.v[k] = S; A.keys.push(k); A.ohne += S.ohne;
+    });
+  } else if(V.standardwoche && V.standardwoche.length){
+    A.mode = "einzel";
+    var S1 = spedFpStdWoche(V);
+    S1.key = "1"; S1.label = "Standardwoche"; S1.sig = {};
+    A.v["1"] = S1; A.keys.push("1"); A.ohne = S1.ohne;
+  }
+  A.has = A.keys.length > 0;
+  if(A.has){
+    var n = A.keys.length, avg = {key:"avg", label:"Ø " + n + " Wochen", kosten:z7(), fremd:z7(), fahrten:z7(),
+                                   touren:A.mode === "vorlagen" ? z7() : null};
+    A.keys.forEach(function(k){
+      var S = A.v[k];
+      for(var w=0; w<7; w++){
+        avg.kosten[w] += S.kosten[w] / n; avg.fremd[w] += S.fremd[w] / n; avg.fahrten[w] += S.fahrten[w] / n;
+        if(avg.touren) avg.touren[w] += S.touren[w] / n;
+      }
+    });
+    avg.wocheKosten = avg.kosten.reduce(function(a, b){ return a + b; }, 0);
+    A.avg = avg;
+  }
+  return A;
+}
+// Welche Vorlage gilt in der Woche (Sonntag)? Startdatum → feste Rotation, sonst Abgleich der Spediteurfahrten.
+function spedFpRotation(A, V, fahrAll){
+  var res = {}, n = A.keys.length;
+  if(!A.has) return res;
+  if(n === 1){ res.fix = A.keys[0]; return res; }
+  if(V.rotation_start){ res.start = V.rotation_start; return res; }
+  var weeks = {};
+  fahrAll.forEach(function(r){
+    var sun = spedFpWeekSun(r.iso), w = spedOvWdFromIso(r.iso);
+    var W = weeks[sun] || (weeks[sun] = {sig:{}, wds:{}});
+    W.sig[spedFpSig(w, r)] = 1; W.wds[w] = 1;
+  });
+  Object.keys(weeks).forEach(function(sun){
+    var W = weeks[sun], best = null, second = 0;
+    A.keys.forEach(function(k){
+      var S = A.v[k], inter = 0, uni = 0, seen = {};
+      Object.keys(W.sig).forEach(function(x){ seen[x] = 1; uni++; if(S.sig[x]) inter++; });
+      Object.keys(S.sig).forEach(function(x){ if(!seen[x] && W.wds[+x.split("|")[0]]) uni++; });
+      var sc = uni ? inter / uni : 0;
+      if(!best || sc > best.score){ if(best) second = Math.max(second, best.score); best = {key:k, score:sc}; }
+      else second = Math.max(second, sc);
+    });
+    res[sun] = (best && best.score >= 0.35 && best.score - second >= 0.02) ? {key:best.key, best:best.key, score:best.score, src:"erkannt"}
+             : {key:"avg", best:best ? best.key : "", score:best ? best.score : 0, src:"unklar"};
+  });
+  return res;
+}
+// Konkrete Vorlage für den Abgleich (bei unklarer Woche die beste Übereinstimmung)
+function spedFpVarMatch(M, iso){
+  var A = M.std, R = M.rot;
+  if(!A.has) return null;
+  var S = spedFpVarFor(M, iso);
+  if(S && S.key !== "avg") return S;
+  var e = R[spedFpWeekSun(iso)];
+  return A.v[(e && e.best) || A.keys[0]];
+}
+function spedFpVarFor(M, iso){
+  var A = M.std, R = M.rot;
+  if(!A.has) return null;
+  if(R.fix) return A.v[R.fix];
+  var sun = spedFpWeekSun(iso);
+  if(R.start){
+    var diff = Math.round((Date.parse(sun + "T00:00:00Z") - Date.parse(R.start + "T00:00:00Z")) / 604800000);
+    var n = A.keys.length;
+    return A.v[A.keys[((diff % n) + n) % n]];
+  }
+  var e = R[sun];
+  return (e && e.key !== "avg") ? A.v[e.key] : A.avg;
+}
+
+function spedFpHatTarife(V){
+  return V.tarifregeln.some(function(r){ return r.aktiv && r.preis != null; }) || Object.keys(V.tarife).length > 0 || !!V.tarif_standard;
+}
+
+function spedFpGroupsAll(){
+  return spedOvUniq(spedOvRowsBase().map(spedOvGroup)).sort(function(a,b){ return a.localeCompare(b, "de"); });
+}
+
+// ── Ampel ───────────────────────────────────────────────────────────────────
+function spedFpAmpel(kind, ist, soll, tol){
+  if(ist == null || soll == null || isNaN(ist) || isNaN(soll)) return "na";
+  tol = +tol || 0;
+  if(kind === "kosten"){
+    if(soll <= 0) return ist <= 0 ? "ok" : "na";
+    var r = (ist - soll) / soll * 100;
+    return r <= 0 ? "ok" : (r <= tol ? "warn" : "bad");
+  }
+  if(kind === "touren"){
+    if(soll <= 0) return "na";
+    var d = Math.abs(ist - soll) / soll * 100;
+    return d <= tol ? "ok" : (d <= 2 * tol ? "warn" : "bad");
+  }
+  var pp = (ist - soll) * 100;
+  if(kind === "eigen") return pp >= 0 ? "ok" : (pp >= -tol ? "warn" : "bad");
+  if(kind === "kq") return pp <= 0 ? "ok" : (pp <= tol ? "warn" : "bad");
+  return "na";
+}
+
+// ── Datenmodell ─────────────────────────────────────────────────────────────
+function spedFpAgg(list, M){
+  var a = {n:list.length, eigen:0, sped:0, fremd:0, extern:0, offen:0, besetzt:0, ist:0, krank:0, urlaub:0,
+           fahrer:0, pers:0, kosten:0, ohneTarif:0, soll:0, sollN:0, fremdSoll:0, fremdSollN:0,
+           kostenSoll:0, kostenSollN:0, budgetN:0, stdN:0, krankExc:0, krankExt:0, krankKosten:0, betrieb:0, extraZ:0, ausfallN:0, ausfallK:0};
+  list.forEach(function(x){
+    a.eigen += x.eigen; a.sped += x.sped; a.fremd += x.fremd; a.extern += x.extern; a.offen += x.offen;
+    a.besetzt += x.besetzt; a.ist += x.ist; a.krank += x.krank; a.urlaub += x.urlaub;
+    a.fahrer += x.fahrer; a.pers += x.pers; a.kosten += x.kosten; a.ohneTarif += x.ohneTarif;
+    a.krankExc += x.krankExc; a.krankExt += x.krankExt; a.krankKosten += x.krankKosten;
+    a.extraZ += x.extraZ || 0; a.ausfallN += x.ausfallN || 0; a.ausfallK += x.ausfallK || 0;
+    if(x.betrieb) a.betrieb++;
+    if(x.soll != null){ a.soll += x.soll; a.sollN++; }
+    if(x.fremdSoll != null){ a.fremdSoll += x.fremdSoll; a.fremdSollN++; }
+    if(x.kostenSoll != null){ a.kostenSoll += x.kostenSoll; a.kostenSollN++; if(x.kostenSollSrc === "budget") a.budgetN++; if(x.kostenSollSrc === "standardwoche") a.stdN++; }
+  });
+  var V = M.V, T = V.toleranz;
+  a.sollV = a.sollN ? a.soll : null;
+  a.fremdSollV = a.fremdSollN ? a.fremdSoll : null;
+  a.kostenSollV = a.kostenSollN ? a.kostenSoll : null;
+  a.kostenSollSrc = !a.kostenSollN ? "" : (a.budgetN === a.kostenSollN ? "budget" : (a.stdN === a.kostenSollN ? "standardwoche" : ((a.budgetN || a.stdN) ? "gemischt" : "abgeleitet")));
+  a.ea = (M.hasTage && a.besetzt) ? a.eigen / a.besetzt : null;
+  a.eaBer = (M.hasTage && a.besetzt) ? (a.eigen + a.krankExt) / a.besetzt : null;
+  a.kq = a.pers ? a.krank / a.pers : null;
+  a.eaSollSrc = "";
+  if(V.eigenanteil_soll != null){ a.eaSoll = V.eigenanteil_soll / 100; a.eaSollSrc = "vorgabe"; }
+  else if(M.std && M.std.has && a.sollN && a.fremdSollN && a.soll > 0){ a.eaSoll = Math.max(0, 1 - a.fremdSoll / a.soll); a.eaSollSrc = "standardwoche"; }
+  else a.eaSoll = null;
+  a.kqSoll = V.krankenquote_soll != null ? V.krankenquote_soll / 100 : null;
+  a.amp = {
+    kosten: spedFpAmpel("kosten", a.kosten, a.kostenSollV, T.kosten_pct),
+    touren: M.hasTage ? spedFpAmpel("touren", a.ist, a.sollV, T.touren_pct) : "na",
+    eigen:  spedFpAmpel("eigen", a.ea, a.eaSoll, T.eigen_pp),
+    kq:     spedFpAmpel("kq", a.kq, a.kqSoll, T.kq_pp)
+  };
+  return a;
+}
+
+function spedFpCompute(){
+  var V = spedFpVorgaben(), Y = String(SPED_OV_JAHR || ""), MO = SPED_OV_MONAT;
+  var tageAll = (SPED_DATA && Array.isArray(SPED_DATA.tage)) ? SPED_DATA.tage : [];
+  var fahrAll = spedOvRowsBase();
+  var M = {V:V, Y:Y, MO:MO, hasTage:tageAll.length > 0};
+  function inYear(iso){ return !Y || String(iso || "").slice(0,4) === Y; }
+  function inPeriod(iso){ iso = String(iso || ""); return inYear(iso) && (MO === "all" || iso.slice(5,7) === MO); }
+  var maxIso = "";
+  tageAll.forEach(function(t){ if(String(t.iso) > maxIso) maxIso = String(t.iso); });
+  fahrAll.forEach(function(r){ if(String(r.iso) > maxIso) maxIso = String(r.iso); });
+  M.maxIso = maxIso;
+
+  // Regelplan: Median der Tagestouren je Wochentag im gewählten Jahr (nur Betriebstage)
+  var wdVals = [[],[],[],[],[],[],[]];
+  tageAll.forEach(function(t){
+    if(!inYear(t.iso)) return;
+    var n = (+t.eigen || 0) + (+t.sped || 0) + (+t.fremd || 0) + (+t.offen || 0), w = spedOvWdFromIso(t.iso);
+    if(n > 0 && w >= 0) wdVals[w].push(n);
+  });
+  M.autoWd = wdVals.map(spedFpMedian);
+  M.sollWd = V.touren_soll_wd.map(function(v, i){ return v != null ? v : M.autoWd[i]; });
+  M.sollAuto = V.touren_soll_wd.map(function(v, i){ return v == null && M.autoWd[i] != null; });
+  M.anyAuto = M.sollAuto.some(function(a){ return a; });
+  M.sollTSrc = "";
+
+  M.std = spedFpStdAll(V);
+  M.rot = spedFpRotation(M.std, V, fahrAll);
+  var hatVorlTouren = M.std.mode === "vorlagen";
+  if(hatVorlTouren){ M.sollAuto = V.touren_soll_wd.map(function(){ return false; }); M.anyAuto = false; }
+  M.sollTSrc = V.touren_soll_wd.every(function(v){ return v == null; }) ? (hatVorlTouren ? "vorlagen" : "auto")
+             : (V.touren_soll_wd.every(function(v){ return v != null; }) ? "vorgabe" : (hatVorlTouren ? "vorgabe+vorlagen" : "vorgabe+auto"));
+  var tmap = spedFpTarifMap(V), day = {};
+  function D(iso){
+    return day[iso] || (day[iso] = {iso:iso, eigen:0, sped:0, fremd:0, offen:0, krank:0, urlaub:0, fahrer:0, spedF:0, kosten:0, ohneTarif:0, trips:[]});
+  }
+  tageAll.forEach(function(t){
+    if(!inYear(t.iso)) return;
+    var x = D(String(t.iso));
+    x.eigen = +t.eigen || 0; x.sped = +t.sped || 0; x.fremd = +t.fremd || 0; x.offen = +t.offen || 0;
+    x.krank = +t.krank || 0; x.urlaub = +t.urlaub || 0; x.fahrer = +t.fahrer || 0;
+  });
+  var bySped = {}, pruef = {};
+  var fahrY = fahrAll.filter(function(r){ return inYear(r.iso); });
+  var PR = spedFpPreise(fahrY, V);
+  M.regeln = PR.regeln;
+  fahrY.forEach(function(r, i){
+    var x = D(String(r.iso)), tf = PR.preise[i];
+    x.spedF++; x.kosten += tf.v; if(tf.src === "fehlt") x.ohneTarif++;
+    if(r.zbv) x.spedZbv = (x.spedZbv || 0) + 1;
+    x.trips.push({r:r, line:String(r.kf || r.nr || ""), grp:spedOvGroup(r), code:spedFpCode(r.tour), v:tf.v, zbv:r.zbv ? 1 : 0});
+    if(!inPeriod(r.iso)) return;
+    var g = spedOvGroup(r), s = bySped[g] || (bySped[g] = {key:g, n:0, kosten:0, ohne:0, tarife:{}});
+    s.n++; s.kosten += tf.v; if(tf.src === "fehlt") s.ohne++;
+    var tk = Math.round(tf.v * 100) / 100;
+    if(tf.src !== "fehlt") s.tarife[tk] = (s.tarife[tk] || 0) + 1;
+    // Tarif-Prüfung: welche Regel greift wie oft
+    var P = pruef[g] || (pruef[g] = {key:g, n:0, kosten:0, zeilen:{}});
+    var zk = tf.regel >= 0 ? "r" + tf.regel : tf.src;
+    var Z = P.zeilen[zk] || (P.zeilen[zk] = {key:zk, regel:tf.regel, src:tf.src, n:0, kosten:0, preise:{}, bsp:{}});
+    P.n++; P.kosten += tf.v; Z.n++; Z.kosten += tf.v; Z.preise[tk] = 1;
+    if(tf.regel < 0){
+      var b = spedFpTourCode(r.tour) || spedFpTourCode(r.tnr) || String(r.tour || r.txt || "ohne Tour");
+      Z.bsp[b] = (Z.bsp[b] || 0) + 1;
+    }
+  });
+  M.pruef = Object.keys(pruef).map(function(k){ return pruef[k]; }).sort(function(a, b){ return b.kosten - a.kosten || b.n - a.n; });
+
+  var kqS = V.krankenquote_soll != null ? V.krankenquote_soll / 100 : null;
+  var eaS = V.eigenanteil_soll != null ? V.eigenanteil_soll / 100 : null;
+  var tStd = +V.tarif_standard || 0, yK = 0, yF = 0;
+  var list = Object.keys(day).sort().map(function(iso){
+    var x = day[iso];
+    if(!M.hasTage) x.sped = x.spedF - (x.spedZbv || 0);
+    x.kosten += x.fremd * tStd;
+    x.wd = spedOvWdFromIso(iso); x.mk = iso.slice(0,7);
+    x.extern = x.sped + x.fremd;
+    x.besetzt = x.eigen + x.extern;
+    x.ist = x.besetzt + x.offen;
+    x.betrieb = x.ist > 0;
+    // Tage ohne Tourenplan (Feiertag, Sonntag ohne Touren) zählen nicht zur Krankenquote.
+    x.krankRoh = x.krank;
+    if(!x.betrieb){ x.krank = 0; x.urlaub = 0; }
+    var SV = spedFpVarFor(M, iso);
+    x.stdKey = SV ? SV.key : "";
+    var sollT = V.touren_soll_wd[x.wd] != null ? V.touren_soll_wd[x.wd] : ((SV && SV.touren) ? SV.touren[x.wd] : M.autoWd[x.wd]);
+    x.soll = (M.hasTage && x.betrieb && sollT != null) ? sollT : null;
+    x.fremdSoll = x.soll == null ? null : (SV ? SV.fremd[x.wd] : (eaS != null ? x.soll * (1 - eaS) : null));
+    x.stdKosten = SV ? SV.kosten[x.wd] : null;
+    x.pers = x.fahrer + x.krank;
+    x.krankExc = kqS != null ? Math.max(0, x.krank - kqS * x.pers) : x.krank;
+    x.tarifAvg = x.extern ? x.kosten / x.extern : 0;
+    if(M.std.has){
+      // Soll = Standard; jede Spediteurfahrt darüber hinaus = Zusatzfahrt wegen Personalmangel
+      var SM = spedFpVarMatch(M, iso), AB = SM ? spedFpAbgleich(x.trips, SM, x.wd) : {extra:x.trips, ausfall:[]};
+      x.extra = AB.extra;
+      x.extraZ = AB.extra.length;
+      x.krankExt = AB.extra.filter(function(t){ return !t.zbv; }).length;
+      x.krankKosten = AB.extra.reduce(function(a, t){ return a + t.v; }, 0);
+      var ausf = x.betrieb ? AB.ausfall : [];
+      x.ausfallN = ausf.length; x.ausfallK = ausf.reduce(function(a, t){ return a + t.v; }, 0);
+    } else {
+      x.extra = []; x.extraZ = 0; x.ausfallN = 0; x.ausfallK = 0;
+      x.krankExt = Math.min(x.extern, x.krankExc);
+      x.krankKosten = x.krankExt * x.tarifAvg;
+    }
+    yK += x.kosten; yF += x.extern;
+    return x;
+  });
+  var tv = Object.keys(V.tarife).map(function(k){ return +V.tarife[k]; }).filter(function(v){ return v > 0; });
+  M.tarifAvg = (yF && yK) ? yK / yF : (tv.length ? tv.reduce(function(a,b){ return a + b; }, 0) / tv.length : tStd);
+
+  // Budget je Monat wird nach Soll-Touren auf die Tage verteilt (Freitag > Sonntag).
+  // Abgeschlossener Monat → über die tatsächlichen Betriebstage (Summe = Budget);
+  // laufender Monat → über alle regulären Tage des Monats (anteilig bis heute).
+  var monthInfo = {};
+  // Gewicht je Wochentag: Soll-Kosten der Standardwoche, sonst Soll-Touren
+  var useW = M.std.has || M.hasTage;
+  function wOf(w){ return M.std.has ? (M.std.avg.kosten[w] || 0) : (M.sollWd[w] || 0); }
+  list.forEach(function(x){
+    var mi = monthInfo[x.mk] || (monthInfo[x.mk] = {betrieb:0, wBetrieb:0});
+    if(x.betrieb){ mi.betrieb++; mi.wBetrieb += wOf(x.wd); }
+  });
+  Object.keys(monthInfo).forEach(function(mk){
+    var mi = monthInfo[mk], y = +mk.slice(0,4), m = +mk.slice(5,7), dim = new Date(y, m, 0).getDate();
+    mi.complete = maxIso >= mk + "-" + String(dim).padStart(2,"0");
+    var exp = 0, wExp = 0;
+    for(var d=1; d<=dim; d++){ var w = spedOvWdFromIso(mk + "-" + String(d).padStart(2,"0")); if(wOf(w)){ exp++; wExp += wOf(w); } }
+    mi.expected = exp;
+    mi.budget = V.budget[mk] != null ? +V.budget[mk] : null;
+    mi.weight = mi.complete ? mi.wBetrieb : Math.max(wExp, mi.wBetrieb);
+    var div = mi.complete ? mi.betrieb : Math.max(exp, mi.betrieb);
+    mi.perDay = (mi.budget != null && div) ? mi.budget / div : null;
+  });
+  M.monthInfo = monthInfo;
+  list.forEach(function(x){
+    var mi = monthInfo[x.mk];
+    x.kostenSoll = null; x.kostenSollSrc = "";
+    if(!x.betrieb) return;
+    if(useW && mi.budget != null && mi.weight > 0 && wOf(x.wd)){ x.kostenSoll = mi.budget * wOf(x.wd) / mi.weight; x.kostenSollSrc = "budget"; }
+    else if(mi.budget != null && !useW && mi.perDay != null){ x.kostenSoll = mi.perDay; x.kostenSollSrc = "budget"; }
+    else if(mi.budget == null && x.stdKosten != null){ x.kostenSoll = x.stdKosten; x.kostenSollSrc = "standardwoche"; }
+    else if(x.fremdSoll != null && M.tarifAvg > 0){ x.kostenSoll = x.fremdSoll * M.tarifAvg; x.kostenSollSrc = "abgeleitet"; }
+  });
+
+  M.days = list.filter(function(x){ return inPeriod(x.iso); });
+  M.total = spedFpAgg(M.days, M);
+  M.rows = [];
+  if(MO === "all"){
+    for(var i=1;i<=12;i++){
+      var mm = String(i).padStart(2,"0");
+      var sub = M.days.filter(function(x){ return x.iso.slice(5,7) === mm; });
+      if(!sub.length) continue;
+      var a = spedFpAgg(sub, M), info = monthInfo[(Y || sub[0].iso.slice(0,4)) + "-" + mm] || {};
+      a.key = mm; a.label = SPED_OV_MON_SHORT[i-1]; a.long = spedOvMonthName(mm) + " " + Y;
+      a.laufend = info.complete === false; a.click = "spedOvPickMonth('" + mm + "')";
+      M.rows.push(a);
+    }
+  } else {
+    M.days.forEach(function(x){
+      var a = spedFpAgg([x], M);
+      a.stdKey = x.stdKey;
+      a.key = x.iso; a.label = String(+x.iso.slice(8,10)); a.wdShort = SPED_OV_WD_SHORT[x.wd];
+      a.long = SPED_OV_WD[x.wd] + ", " + spedOvDateDe(x.iso);
+      M.rows.push(a);
+    });
+  }
+  var tot = 0;
+  M.speds = Object.keys(bySped).map(function(k){ var s = bySped[k]; tot += s.kosten; return s; })
+              .sort(function(a,b){ return b.kosten - a.kosten || b.n - a.n; });
+  M.spedKostenTotal = tot;
+  return M;
+}
+
+// ── Bausteine ───────────────────────────────────────────────────────────────
+function spedFpTabsHtml(){
+  function b(v, label){
+    var on = SPED_OV_VIEW === v;
+    return '<button type="button" onclick="spedFpSetView(\'' + v + '\')" style="padding:7px 14px;border:0;border-radius:7px;font:900 11px Segoe UI,Arial;cursor:pointer;'
+      + (on ? 'background:#fff;color:#0f172a;box-shadow:0 1px 4px rgba(15,23,42,.14);' : 'background:transparent;color:#64748b;') + '">' + label + '</button>';
+  }
+  return '<div style="display:inline-flex;gap:3px;padding:3px;background:#e2e8f0;border-radius:9px;margin-bottom:12px;">'
+    + b("soll", "Soll / Ist · Dashboard FP") + b("stat", "Fahrten-Statistik") + '</div>';
+}
+function spedFpSetView(v){
+  SPED_OV_VIEW = v === "stat" ? "stat" : "soll";
+  try{ localStorage.setItem(SPED_FP_VIEW_KEY, SPED_OV_VIEW); }catch(e){}
+  spedRender();
+}
+function spedFpBtn(label, onclick, tone, title){
+  var t = {green:["#86efac","#f0fdf4","#166534"], blue:["#b9cce3","#fff","#1e3a5f"], gray:["#cbd5e1","#fff","#334155"], amber:["#fcd34d","#fffbeb","#92400e"]}[tone || "gray"];
+  return '<button type="button" onclick="' + onclick + '"' + (title ? ' title="' + spedOvEsc(title) + '"' : '')
+    + ' style="padding:8px 11px;border:1.5px solid ' + t[0] + ';border-radius:8px;background:' + t[1] + ';color:' + t[2] + ';font:900 11px Segoe UI,Arial;cursor:pointer;white-space:nowrap;">' + label + '</button>';
+}
+function spedFpPill(amp){
+  return '<span style="padding:3px 8px;border-radius:999px;background:' + SPED_FP_AMP_BG[amp] + ';color:' + SPED_FP_C[amp]
+    + ';font-size:9.5px;font-weight:950;white-space:nowrap;">● ' + SPED_FP_AMP_TXT[amp] + '</span>';
+}
+function spedFpMini(label, value, hint, color){
+  return '<div style="padding:6px 9px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;min-width:0;">'
+    + '<div style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;">' + spedOvEsc(label) + '</div>'
+    + '<div style="font-size:14px;font-weight:950;color:' + (color || '#0f172a') + ';font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + spedOvEsc(value) + '</div>'
+    + (hint ? '<div style="font-size:9px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + spedOvEsc(hint) + '">' + spedOvEsc(hint) + '</div>' : '')
+    + '</div>';
+}
+// o.note ist bereits HTML (Werte vorher escapen)
+function spedFpCard(o){
+  var c = SPED_FP_C[o.amp] || SPED_FP_C.na;
+  return '<div style="' + SPED_OV_CARD + 'padding:12px 14px 11px;border-top:4px solid ' + c + ';flex:1 1 250px;min-width:235px;display:flex;flex-direction:column;gap:7px;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'
+    + '<div style="font-size:10px;font-weight:950;color:#475569;text-transform:uppercase;letter-spacing:.45px;">' + spedOvEsc(o.title) + '</div>' + spedFpPill(o.amp) + '</div>'
+    + '<div style="display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;">'
+    + '<div style="font-size:26px;line-height:1.05;font-weight:950;color:#0f172a;font-variant-numeric:tabular-nums;">' + spedOvEsc(o.ist) + '</div>'
+    + '<div style="font-size:10px;font-weight:850;color:#94a3b8;">' + spedOvEsc(o.istHint || "Ist") + '</div></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">'
+    + spedFpMini("Soll", o.soll, o.sollHint) + spedFpMini("Abweichung", o.delta, o.deltaHint, o.amp === "na" ? "#64748b" : c)
+    + '</div>'
+    + (o.note ? '<div style="font-size:10px;color:#64748b;line-height:1.5;">' + o.note + '</div>' : '')
+    + '</div>';
+}
+function spedFpLegend(items){
+  return '<div style="display:flex;gap:11px;align-items:center;flex-wrap:wrap;font-size:10px;font-weight:800;color:#475569;">'
+    + items.map(function(it){
+        var sw = it[2] === "line"
+          ? '<span style="width:14px;height:0;border-top:2px solid ' + it[1] + ';display:inline-block;"></span>'
+          : '<span style="width:10px;height:10px;border-radius:3px;background:' + it[1] + ';display:inline-block;"></span>';
+        return '<span style="display:inline-flex;align-items:center;gap:5px;">' + sw + spedOvEsc(it[0]) + '</span>';
+      }).join('') + '</div>';
+}
+
+// Säulen (gestapelt) mit Soll-Markierung. cols: [{label, sub, muted, segs:[{v,color}], marker, ttv, ttl, tts, onclick}]
+function spedFpStack(cols, opt){
+  opt = opt || {};
+  var H = opt.height || 150, fmt = opt.fmt || spedOvNum, maxV = 0, minV = opt.min || 0;
+  cols.forEach(function(c){
+    var s = 0; c.segs.forEach(function(x){ s += x.v || 0; }); c.sum = s;
+    if(s > maxV) maxV = s;
+    if(c.marker != null && c.marker > maxV) maxV = c.marker;
+  });
+  var t;
+  if(opt.max != null) t = {max:opt.max, step:opt.step || (opt.max - minV) / 4};
+  else { t = spedOvTicks(Math.max(0, maxV - minV)); t.max += minV; }
+  var span = Math.max(1e-9, t.max - minV);
+  function y(v){ return Math.max(0, Math.min(H, (v - minV) / span * H)); }
+  var dense = cols.length > 16, grid = '';
+  for(var g=minV; g<=t.max + 1e-9; g+=t.step){
+    grid += '<div style="position:absolute;left:0;right:0;bottom:' + Math.round(y(g)) + 'px;border-top:1px solid ' + (g === minV ? '#cbd5e1' : '#eef2f6') + ';">'
+          + '<span style="position:absolute;left:-50px;top:-7px;width:44px;text-align:right;font-size:9px;color:#94a3b8;font-variant-numeric:tabular-nums;">' + spedOvEsc(fmt(g)) + '</span></div>';
+  }
+  var bars = cols.map(function(c){
+    var h = c.sum > 0 ? Math.max(2, y(c.sum)) : 0;
+    var segs = c.segs.filter(function(x){ return x.v > 0; }).reverse().map(function(x){
+      return '<div style="flex:' + x.v + ' 0 0;min-height:1px;background:' + x.color + ';"></div>';
+    }).join('');
+    var mk = c.marker != null
+      ? '<div style="position:absolute;left:-4px;right:-4px;bottom:' + y(c.marker).toFixed(1) + 'px;border-top:2px solid ' + SPED_FP_C.soll + ';border-radius:1px;"></div>' : '';
+    return '<div class="sped-ov-hit" tabindex="0"' + spedOvTT(c.ttv, c.ttl, c.tts) + (c.onclick ? ' onclick="' + c.onclick + '"' : '')
+      + ' style="flex:1;min-width:0;height:100%;display:flex;align-items:flex-end;justify-content:center;' + (c.onclick ? 'cursor:pointer;' : 'cursor:default;') + '">'
+      + '<div class="sped-ov-bar" style="position:relative;width:' + (dense ? '68%' : 'min(26px,62%)') + ';height:' + h.toFixed(1) + 'px;">'
+      + '<div style="display:flex;flex-direction:column;height:100%;border-radius:4px 4px 0 0;overflow:hidden;">' + segs + '</div>' + mk + '</div></div>';
+  }).join('');
+  var axis = cols.map(function(c){
+    return '<div style="flex:1;min-width:0;text-align:center;line-height:1.25;">'
+      + '<div style="font-size:' + (dense ? 9 : 10) + 'px;font-weight:850;color:' + (c.muted ? '#94a3b8' : '#475569') + ';white-space:nowrap;">' + spedOvEsc(c.label) + '</div>'
+      + (c.sub ? '<div style="font-size:9px;color:#94a3b8;white-space:nowrap;">' + spedOvEsc(c.sub) + '</div>' : '') + '</div>';
+  }).join('');
+  return '<div style="position:relative;height:' + (H + 50) + 'px;">'
+    + '<div style="position:absolute;left:52px;right:6px;top:14px;height:' + H + 'px;">' + grid
+    + '<div style="position:absolute;inset:0;display:flex;align-items:flex-end;">' + bars + '</div></div>'
+    + '<div style="position:absolute;left:52px;right:6px;top:' + (H + 18) + 'px;display:flex;">' + axis + '</div></div>';
+}
+function spedFpEurShort(v){
+  if(v == null || isNaN(v)) return "–";
+  return Math.abs(v) >= 10000 ? spedOvDec(v / 1000, 0) + " T€" : (Math.abs(v) >= 1000 ? spedOvDec(v / 1000, 1) + " T€" : spedOvDec(v, 0) + " €");
+}
+
+// ── Abschnitte ──────────────────────────────────────────────────────────────
+function spedFpQuelleHtml(M){
+  var V = M.V, txt, tone, extra = '';
+  if(V.quelle === "lokal"){
+    txt = "Vorgaben lokal in diesem Browser geändert (" + V.stand + "). Für alle sichtbar erst nach „Vorgaben als Excel“ und Upload in Streamlit.";
+    tone = ["#fcd34d", "#fffbeb", "#92400e"];
+    extra = ' <button type="button" onclick="spedFpResetLocal()" style="margin-left:6px;padding:3px 8px;border:1px solid #f59e0b;border-radius:6px;background:#fff;color:#92400e;font:900 10px Segoe UI,Arial;cursor:pointer;">Lokale Änderungen verwerfen</button>';
+  } else if(V.quelle === "excel"){
+    txt = "Vorgaben aus " + (V.datei || "Excel") + (V.stand ? " · eingelesen " + V.stand : "");
+    tone = ["#bbf7d0", "#f0fdf4", "#166534"];
+  } else {
+    txt = "Vorgaben: Standardwerte des Generators";
+    tone = ["#e2e8f0", "#f8fafc", "#475569"];
+  }
+  var miss = [];
+  if(V.eigenanteil_soll == null && !M.std.has) miss.push("Eigenanteil-Soll");
+  if(V.krankenquote_soll == null) miss.push("Krankenquote-Soll");
+  if(!spedFpHatTarife(V)) miss.push("Tarife");
+  if(!Object.keys(V.budget).length && !M.std.has) miss.push("Budget oder Standardwoche (Kosten-Soll wird abgeleitet)");
+  if(M.std.ohne) miss.push(M.std.ohne + " Standardwochen-Fahrten ohne Tarif");
+  if(M.std.mode === "einzel") miss.push("Vorlagen Tour 1–4 nicht hochgeladen (Soll aus fester Standardwoche)");
+  if(M.anyAuto) miss.push("Soll-Touren teils automatisch (Regelplan)");
+  return '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 10px;">'
+    + '<div style="padding:5px 10px;border:1px solid ' + tone[0] + ';background:' + tone[1] + ';color:' + tone[2] + ';border-radius:8px;font-size:10px;font-weight:850;">' + spedOvEsc(txt) + extra + '</div>'
+    + (miss.length ? '<div style="font-size:10px;color:#94a3b8;font-weight:750;">Offen: ' + spedOvEsc(miss.join(" · ")) + '</div>' : '')
+    + '</div>';
+}
+
+function spedFpCardsHtml(M){
+  var T = M.total, V = M.V, n = spedOvNum;
+  var kSrc = {budget:"Budget", standardwoche:(M.std.mode === "vorlagen" ? "Vorlagen Tour 1–4 × Tarif" : "Standardwoche × Tarif"), gemischt:"Budget + Standardwoche", abgeleitet:"Soll-Fremdfahrten × Ø-Tarif"}[T.kostenSollSrc] || "Budget/Standardwoche fehlt";
+  var kNote = '<b style="color:#0f172a;">' + n(T.extern) + '</b> Fremdfahrten'
+    + (T.fremdSollV != null ? ' (Soll ' + n(Math.round(T.fremdSollV)) + ')' : '')
+    + ' · Ø ' + spedFpEur(T.extern ? T.kosten / T.extern : M.tarifAvg) + ' je Fahrt'
+    + (M.std.has && T.krankKosten >= 1 ? '<br>davon Zusatzfahrten (Personalmangel): <b style="color:' + SPED_FP_C.bad + ';">' + spedFpEur(T.krankKosten) + '</b>' : '')
+    + (T.ohneTarif ? '<br><span style="color:#dc2626;font-weight:850;">⚠ ' + n(T.ohneTarif) + ' Fahrten ohne Tarif (0 €) – Tarife unter ⚙ Vorgaben pflegen</span>' : '');
+  var tAuto = {vorlagen:"Vorlagen Tour " + M.std.keys[0] + (M.std.keys.length > 1 ? "–" + M.std.keys[M.std.keys.length - 1] : ""), auto:"Regelplan automatisch", vorgabe:"Vorgabe je Wochentag",
+               "vorgabe+vorlagen":"Vorgabe + Vorlagen", "vorgabe+auto":"Vorgabe + Regelplan"}[M.sollTSrc] || "";
+  var tNote = !M.hasTage
+    ? '<span style="color:#b45309;font-weight:850;">Touren-Dateien neu hochladen – Tagesauswertung fehlt.</span>'
+    : '<b style="color:#0f172a;">' + n(T.betrieb) + '</b> Betriebstage · Ø ' + spedOvDec(T.betrieb ? T.ist / T.betrieb : 0, 1) + ' Touren/Tag'
+      + (T.offen ? ' · <span style="color:#b45309;font-weight:850;">' + n(T.offen) + ' unbesetzt</span>' : '');
+  var eNote = '<b style="color:' + SPED_FP_C.eigen + ';">' + n(T.eigen) + '</b> eigen · <b style="color:' + SPED_FP_C.sped + ';">' + n(T.sped) + '</b> Spedition'
+    + (T.fremd ? ' · <b style="color:#a16207;">' + n(T.fremd) + '</b> sonst. extern' : '')
+    + (T.eaBer != null && T.krankExt >= 0.5 ? '<br>' + (M.std.has ? 'ohne Zusatzfahrten' : 'ohne Mehr-Krankheit') + ': <b style="color:#0f172a;">' + spedFpPct(T.eaBer) + '</b>' : '');
+  var kqNote = '<b style="color:#0f172a;">' + n(T.krank) + '</b> Krankheitstage von ' + n(T.pers) + ' Personentagen'
+    + (T.betrieb ? ' · Ø ' + spedOvDec(T.krank / T.betrieb, 1) + ' Fahrer/Tag krank' : '');
+  return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;">'
+    + spedFpCard({title:"Kosten Spediteure", amp:T.amp.kosten, ist:spedFpEur(T.kosten), soll:spedFpEur(T.kostenSollV), sollHint:kSrc,
+                  delta:spedFpEurSigned(T.kostenSollV != null ? T.kosten - T.kostenSollV : null), deltaHint:spedFpRelPct(T.kosten, T.kostenSollV), note:kNote})
+    + spedFpCard({title:"Tourenplanung", amp:T.amp.touren, ist:M.hasTage ? n(T.ist) : "–", istHint:"Touren Ist", soll:T.sollV != null ? n(Math.round(T.sollV)) : "–", sollHint:tAuto,
+                  delta:T.sollV != null ? spedFpSigned(T.ist - T.sollV) + " Touren" : "–", deltaHint:spedFpRelPct(T.ist, T.sollV), note:tNote})
+    + spedFpCard({title:"Eigenanteil", amp:T.amp.eigen, ist:spedFpPct(T.ea), istHint:"eigene Touren", soll:spedFpPct(T.eaSoll), sollHint:T.eaSollSrc === "vorgabe" ? "Vorgabe" : (T.eaSollSrc === "standardwoche" ? (M.std.mode === "vorlagen" ? "aus Vorlagen Tour 1–4" : "aus Standardwoche") : "unter ⚙ Vorgaben setzen"),
+                  delta:(T.ea != null && T.eaSoll != null) ? spedFpPP(T.ea - T.eaSoll) : "–", deltaHint:"Prozentpunkte", note:eNote})
+    + spedFpCard({title:"Krankenquote", amp:T.amp.kq, ist:spedFpPct(T.kq), istHint:"eigene Fahrer", soll:spedFpPct(T.kqSoll), sollHint:V.krankenquote_soll == null ? "unter ⚙ Vorgaben setzen" : "Vorgabe",
+                  delta:(T.kq != null && T.kqSoll != null) ? spedFpPP(T.kq - T.kqSoll) : "–", deltaHint:"Prozentpunkte", note:kqNote})
+    + '</div>';
+}
+
+function spedFpKrankHtml(M){
+  var T = M.total, V = M.V;
+  if(!M.hasTage || !T.pers) return '';
+  function step(label, value, hint, color){
+    return '<div style="flex:1 1 150px;min-width:140px;padding:8px 10px;border-radius:9px;background:#f8fafc;border:1px solid #e2e8f0;">'
+      + '<div style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;">' + spedOvEsc(label) + '</div>'
+      + '<div style="font-size:17px;font-weight:950;color:' + (color || '#0f172a') + ';font-variant-numeric:tabular-nums;margin-top:1px;">' + spedOvEsc(value) + '</div>'
+      + (hint ? '<div style="font-size:9.5px;color:#94a3b8;">' + spedOvEsc(hint) + '</div>' : '') + '</div>';
+  }
+  var arrow = '<div style="align-self:center;color:#cbd5e1;font-size:16px;font-weight:900;">→</div>';
+  if(M.std.has){
+    var urlaubQ = T.pers + T.urlaub ? T.urlaub / (T.pers + T.urlaub) : null;
+    return '<div style="' + SPED_OV_CARD + 'padding:11px 14px;margin-top:10px;">'
+      + spedOvCardHead("Personalmangel → Zusatzfahrten Spediteure", "Soll = Standard (Vorlage Tour 1–4 der Woche). Jede Spediteurfahrt darüber hinaus ist eine Zusatzfahrt wegen Personalmangel.")
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;">'
+      + step("Krankheitstage", spedOvNum(T.krank), "Krankenquote " + spedFpPct(T.kq))
+      + step("Urlaub / Ausgleich", spedOvNum(T.urlaub), urlaubQ != null ? spedFpPct(urlaubQ) + " der Personentage" : "")
+      + arrow + step("Zusatzfahrten", spedOvNum(T.krankExt) + (T.extraZ > T.krankExt ? " + " + (T.extraZ - T.krankExt) + " z.b.v." : ""), "von " + spedOvNum(T.extern) + " Spediteurtouren", SPED_FP_C.bad)
+      + arrow + step("Mehrkosten", spedFpEur(T.krankKosten), T.kosten ? spedOvDec(T.krankKosten / T.kosten * 100, 1) + " % der Spediteurkosten" : "", SPED_FP_C.bad)
+      + arrow + step("Eigenanteil ohne Zusatzfahrten", spedFpPct(T.eaBer), "Ist " + spedFpPct(T.ea) + (T.eaSoll != null ? " · Soll " + spedFpPct(T.eaSoll) : ""), SPED_FP_C.eigen)
+      + '</div>'
+      + (T.ausfallN ? '<div style="font-size:10px;color:#64748b;margin-top:6px;">Gegenrechnung: ' + spedOvNum(T.ausfallN) + ' Standardfahrten der Spediteure sind nicht gefahren (−' + spedFpEur(T.ausfallK) + '), z. B. selbst gefahren oder Feiertag.</div>' : '')
+      + '</div>';
+  }
+  var excHint = V.krankenquote_soll != null ? "über Soll-Quote " + spedOvDec(V.krankenquote_soll, 1) + " %" : "ohne Soll-Quote: alle";
+  return '<div style="' + SPED_OV_CARD + 'padding:11px 14px;margin-top:10px;">'
+    + spedOvCardHead("Krankenquote berücksichtigt", "Wie viel Fremdvergabe geht auf Krankheit zurück? Je Tag: Krankheitstage über Soll-Quote, höchstens so viele wie Fremdfahrten.")
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;">'
+    + step("Krankheitstage", spedOvNum(T.krank), "Quote " + spedFpPct(T.kq))
+    + arrow + step("Mehr-Krankheit", spedOvDec(T.krankExc, 0), excHint, T.krankExc >= 0.5 ? SPED_FP_C.bad : null)
+    + arrow + step("Krankheitsbed. Fremdfahrten", "≈ " + spedOvDec(T.krankExt, 0), "von " + spedOvNum(T.extern) + " Fremdfahrten", SPED_FP_C.sped)
+    + arrow + step("Krankheitsbed. Kosten", "≈ " + spedFpEur(T.krankKosten), T.kosten ? spedOvDec(T.krankKosten / T.kosten * 100, 1) + " % der Spediteurkosten" : "")
+    + arrow + step("Eigenanteil ohne Mehr-Krankheit", spedFpPct(T.eaBer), "Ist " + spedFpPct(T.ea) + (T.eaSoll != null ? " · Soll " + spedFpPct(T.eaSoll) : ""), SPED_FP_C.eigen)
+    + '</div></div>';
+}
+
+function spedFpChartsHtml(M){
+  var rows = M.rows, isYear = M.MO === "all", Y = M.Y;
+  if(!rows.length) return '';
+  function base(r){
+    return {label:r.label, sub:isYear ? (r.laufend ? "lfd." : "") : r.wdShort, muted:!r.ist && !r.kosten,
+            ttl:r.long, onclick:isYear ? r.click : ""};
+  }
+  var cT = rows.map(function(r){
+    var c = base(r);
+    c.segs = [{v:r.eigen, color:SPED_FP_C.eigen}, {v:r.sped, color:SPED_FP_C.sped}, {v:r.fremd, color:SPED_FP_C.fremd}, {v:r.offen, color:SPED_FP_C.offen}];
+    c.marker = r.sollV; c.ttv = spedOvNum(r.ist) + " Touren" + (r.sollV != null ? " · Soll " + spedOvNum(Math.round(r.sollV)) : "");
+    c.tts = "Eigen " + spedOvNum(r.eigen) + " · Spedition " + spedOvNum(r.sped) + (r.fremd ? " · sonst. extern " + r.fremd : "") + (r.offen ? " · unbesetzt " + r.offen : "")
+          + " · Eigenanteil " + spedFpPct(r.ea);
+    return c;
+  });
+  var cK = rows.map(function(r){
+    var c = base(r);
+    c.segs = [{v:r.kosten, color:SPED_FP_BAR[r.amp.kosten]}]; c.marker = r.kostenSollV;
+    c.ttv = spedFpEur(r.kosten) + (r.kostenSollV != null ? " · Soll " + spedFpEur(r.kostenSollV) : "");
+    c.tts = spedOvNum(r.extern) + " Fremdfahrten" + (r.kostenSollV != null ? " · " + spedFpEurSigned(r.kosten - r.kostenSollV) : "") + (r.krankKosten >= 1 ? (M.std.has ? " · Zusatzfahrten " : " · krankheitsbed. ≈ ") + spedFpEur(r.krankKosten) : "");
+    return c;
+  });
+  var eaVals = [];
+  rows.forEach(function(r){ if(r.ea != null) eaVals.push(r.ea * 100); if(r.eaSoll != null) eaVals.push(r.eaSoll * 100); });
+  var eaMin = eaVals.length ? Math.max(0, Math.floor((Math.min.apply(null, eaVals) - 5) / 10) * 10) : 0;
+  var eaStep = (100 - eaMin) <= 40 ? 10 : 20;
+  if(eaStep === 20 && eaMin % 20) eaMin -= 10;
+  var cE = rows.map(function(r){
+    var c = base(r);
+    c.segs = [{v:r.ea != null ? r.ea * 100 : 0, color:SPED_FP_BAR[r.amp.eigen]}]; c.marker = r.eaSoll != null ? r.eaSoll * 100 : null;
+    c.ttv = "Eigenanteil " + spedFpPct(r.ea) + (r.eaSoll != null ? " · Soll " + spedFpPct(r.eaSoll) : "");
+    c.tts = spedOvNum(r.eigen) + " eigen von " + spedOvNum(r.besetzt) + " besetzten Touren" + (r.krankExt >= 0.5 ? (M.std.has ? " · ohne Zusatzfahrten " : " · ohne Mehr-Krankheit ") + spedFpPct(r.eaBer) : "");
+    return c;
+  });
+  var kqMax = 0;
+  rows.forEach(function(r){ if(r.kq != null) kqMax = Math.max(kqMax, r.kq * 100); if(r.kqSoll != null) kqMax = Math.max(kqMax, r.kqSoll * 100); });
+  var cQ = rows.map(function(r){
+    var c = base(r);
+    c.segs = [{v:r.kq != null ? r.kq * 100 : 0, color:SPED_FP_BAR[r.amp.kq]}]; c.marker = r.kqSoll != null ? r.kqSoll * 100 : null;
+    c.ttv = "Krankenquote " + spedFpPct(r.kq) + (r.kqSoll != null ? " · Soll " + spedFpPct(r.kqSoll) : "");
+    c.tts = spedOvNum(r.krank) + " Krankheitstage · " + spedOvNum(r.pers) + " Personentage" + (r.krankExt >= 0.5 ? " · " + spedOvDec(r.krankExt, 0) + (M.std.has ? " Zusatzfahrten Spediteure" : " krankheitsbed. Fremdfahrten") : "");
+    return c;
+  });
+  var per = isYear ? "je Monat " + Y : "je Tag · " + spedOvMonthName(M.MO) + " " + Y;
+  var sollLine = ["Soll", SPED_FP_C.soll, "line"];
+  var ampLeg = [["im Ziel", SPED_FP_BAR.ok], ["knapp", SPED_FP_BAR.warn], ["außerhalb", SPED_FP_BAR.bad], sollLine];
+  function card(title, sub, legend, body){
+    return '<div style="' + SPED_OV_CARD + 'padding:12px 14px;flex:1 1 520px;min-width:0;">' + spedOvCardHead(title, sub, legend) + body + '</div>';
+  }
+  var pct = function(v){ return spedOvDec(v, 0) + " %"; };
+  var back = !isYear ? spedFpBtn("← Ganzes Jahr", "spedOvPickMonth('all')", "gray") : '';
+  return (back ? '<div style="display:flex;justify-content:flex-end;margin:-2px 0 8px;">' + back + '</div>' : '')
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+    + card("Tourenplanung " + per, isYear ? "Monat anklicken für die Tagesansicht" : "Ist nach Besetzung, Linie = Soll",
+           spedFpLegend([["Eigen", SPED_FP_C.eigen], ["Spedition", SPED_FP_C.sped], ["sonst. extern", SPED_FP_C.fremd], ["unbesetzt", SPED_FP_C.offen], sollLine]),
+           M.hasTage ? spedFpStack(cT, {height:150}) : '<div style="padding:30px;text-align:center;color:#94a3b8;font-size:12px;">Tagesauswertung fehlt – Touren-Dateien neu hochladen.</div>')
+    + card("Spediteurkosten " + per, "Ist nach Tarif, Linie = Soll", spedFpLegend(ampLeg),
+           (M.total.kosten || M.total.kostenSollV) ? spedFpStack(cK, {height:150, fmt:spedFpEurShort})
+             : '<div style="padding:40px 10px;text-align:center;color:#94a3b8;font-size:12px;">Keine Tarife hinterlegt – unter ⚙ Vorgaben je Spedition € pro Fahrt eintragen.</div>')
+    + '</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">'
+    + card("Eigenanteil " + per, "eigene Touren ÷ besetzte Touren", spedFpLegend(ampLeg), spedFpStack(cE, {height:130, fmt:pct, min:eaMin, max:100, step:eaStep}))
+    + card("Krankenquote " + per, "Krankheitstage ÷ Personentage (eigene Fahrer)", spedFpLegend(ampLeg), spedFpStack(cQ, {height:130, fmt:pct}))
+    + '</div>';
+}
+
+function spedFpTableHtml(M){
+  var isYear = M.MO === "all", rows = M.rows, T = M.total, n = spedOvNum;
+  if(!rows.length) return '<div style="' + SPED_OV_CARD + 'padding:30px;text-align:center;color:#94a3b8;font-size:12px;">Keine Daten im gewählten Zeitraum.</div>';
+  var td = 'padding:6px 8px;border-bottom:1px solid #eef2f6;white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right;';
+  var sep = 'border-left:2px solid #e2e8f0;';
+  function amp(v, a){ return '<span style="color:' + SPED_FP_C[a] + ';font-weight:950;">' + v + '</span>'; }
+  function line(r, isTotal){
+    var st = isTotal ? 'background:#f8fafc;font-weight:950;color:#0f172a;' : 'color:#334155;';
+    var first = isTotal ? 'Gesamt' : (isYear
+      ? '<button type="button" onclick="' + r.click + '" title="Tagesansicht" style="border:0;background:none;padding:0;font:inherit;font-weight:950;color:#1e6091;cursor:pointer;">' + spedOvEsc(r.long) + '</button>' + (r.laufend ? ' <span style="font-size:9px;color:#94a3b8;">lfd.</span>' : '')
+      : '<b style="color:#0f172a;">' + spedOvEsc(spedOvDateShort(r.key)) + '</b> <span style="color:#94a3b8;">' + spedOvEsc(r.wdShort) + '</span>'
+        + (r.betrieb ? (r.stdKey && M.std.keys.length > 1 ? ' <span style="font-size:9px;color:#94a3b8;">' + (r.stdKey === "avg" ? "Ø" : "T" + spedOvEsc(r.stdKey)) + '</span>' : '') : ' <span style="font-size:9px;color:#94a3b8;">kein Tourenplan</span>'));
+    var c = '<tr style="' + st + '">'
+      + '<td style="' + td + 'text-align:left;">' + first + '</td>'
+      + '<td style="' + td + '">' + n(r.betrieb) + '</td>'
+      + '<td style="' + td + sep + '">' + (r.sollV != null ? n(Math.round(r.sollV)) : '–') + '</td>'
+      + '<td style="' + td + '">' + n(r.ist) + '</td>'
+      + '<td style="' + td + '">' + amp(r.sollV != null ? spedFpSigned(r.ist - r.sollV) : '–', r.amp.touren) + '</td>'
+      + '<td style="' + td + sep + 'color:' + SPED_FP_C.eigen + ';">' + n(r.eigen) + '</td>'
+      + '<td style="' + td + 'color:' + SPED_FP_C.sped + ';">' + n(r.sped) + '</td>'
+      + '<td style="' + td + '">' + (r.fremd ? n(r.fremd) : '–') + '</td>'
+      + '<td style="' + td + '">' + (r.offen ? n(r.offen) : '–') + '</td>'
+      + '<td style="' + td + '">' + amp(spedFpPct(r.ea), r.amp.eigen) + '</td>'
+      + '<td style="' + td + 'color:#94a3b8;">' + spedFpPct(r.eaSoll) + '</td>'
+      + '<td style="' + td + sep + '">' + n(r.krank) + '</td>'
+      + '<td style="' + td + 'color:#94a3b8;">' + n(r.pers) + '</td>'
+      + '<td style="' + td + '">' + amp(spedFpPct(r.kq), r.amp.kq) + '</td>'
+      + '<td style="' + td + sep + '">' + (r.fremdSollV != null ? n(Math.round(r.fremdSollV)) : '–') + '</td>'
+      + '<td style="' + td + '">' + n(r.extern) + '</td>'
+      + '<td style="' + td + '">' + (r.krankExt >= 0.5 ? spedOvDec(r.krankExt, 0) : '–') + '</td>'
+      + '<td style="' + td + sep + '">' + spedFpEur(r.kostenSollV) + '</td>'
+      + '<td style="' + td + '">' + amp(spedFpEur(r.kosten), r.amp.kosten) + '</td>'
+      + '<td style="' + td + '">' + (r.kostenSollV != null ? spedFpEurSigned(r.kosten - r.kostenSollV) : '–') + '</td>'
+      + '<td style="' + td + '">' + (r.krankKosten >= 1 ? spedFpEur(r.krankKosten) : '–') + '</td>'
+      + '</tr>';
+    return c;
+  }
+  var gh = 'padding:6px 8px;font-size:9px;font-weight:950;letter-spacing:.4px;text-transform:uppercase;color:#475569;';
+  var th = 'padding:6px 8px;text-align:right;white-space:nowrap;';
+  return '<div style="' + SPED_OV_CARD + 'overflow:hidden;">'
+    + '<div style="overflow-x:auto;"><table class="sped-ov-tbl" style="width:100%;border-collapse:collapse;font-size:11px;min-width:1280px;">'
+    + '<thead><tr style="background:#f1f5f9;">'
+    + '<th colspan="2" style="' + gh + 'text-align:left;">' + (isYear ? 'Monat' : 'Tag') + '</th>'
+    + '<th colspan="3" style="' + gh + sep + 'text-align:center;">Tourenplanung</th>'
+    + '<th colspan="6" style="' + gh + sep + 'text-align:center;">Eigenanteil</th>'
+    + '<th colspan="3" style="' + gh + sep + 'text-align:center;">Krankenquote</th>'
+    + '<th colspan="3" style="' + gh + sep + 'text-align:center;">Fremdfahrten</th>'
+    + '<th colspan="4" style="' + gh + sep + 'text-align:center;">Kosten Spediteure</th></tr>'
+    + '<tr style="background:#f8fafc;color:#64748b;text-transform:uppercase;letter-spacing:.3px;font-size:9px;">'
+    + '<th style="' + th + 'text-align:left;">Zeitraum</th><th style="' + th + '">Betr.-Tage</th>'
+    + '<th style="' + th + sep + '">Soll</th><th style="' + th + '">Ist</th><th style="' + th + '">Δ</th>'
+    + '<th style="' + th + sep + '">Eigen</th><th style="' + th + '">Spedition</th><th style="' + th + '">sonst. ext.</th><th style="' + th + '">unbesetzt</th><th style="' + th + '">Ist</th><th style="' + th + '">Soll</th>'
+    + '<th style="' + th + sep + '">Krank</th><th style="' + th + '">Pers.-Tage</th><th style="' + th + '">Quote</th>'
+    + '<th style="' + th + sep + '">Soll</th><th style="' + th + '">Ist</th><th style="' + th + '">' + (M.std.has ? 'Zusatz' : 'krankh.-bed.') + '</th>'
+    + '<th style="' + th + sep + '">Soll</th><th style="' + th + '">Ist</th><th style="' + th + '">Δ</th><th style="' + th + '">' + (M.std.has ? 'Mehrkosten Zusatz' : 'krankh.-bed.') + '</th></tr></thead>'
+    + '<tbody>' + rows.map(function(r){ return line(r, false); }).join('') + line(T, true) + '</tbody></table></div></div>';
+}
+
+function spedFpSpedTableHtml(M){
+  var T = M.total, V = M.V, tot = M.spedKostenTotal + T.fremd * (+V.tarif_standard || 0), n = spedOvNum;
+  var rows = M.speds.slice();
+  if(T.fremd) rows.push({key:"Sonstige Externe (ohne Katalog-Nr.)", n:T.fremd, kosten:T.fremd * (+V.tarif_standard || 0), ohne:(+V.tarif_standard ? 0 : T.fremd), tarife:(+V.tarif_standard ? (function(){ var o = {}; o[+V.tarif_standard] = T.fremd; return o; })() : {}), muted:true});
+  if(!rows.length) return '';
+  var nTot = rows.reduce(function(a, r){ return a + r.n; }, 0);
+  var td = 'padding:7px 9px;border-bottom:1px solid #eef2f6;white-space:nowrap;font-variant-numeric:tabular-nums;';
+  var body = rows.map(function(s){
+    var tk = Object.keys(s.tarife), tTxt;
+    if(s.ohne && !tk.length) tTxt = '<span style="color:#dc2626;font-weight:950;">fehlt</span>';
+    else if(tk.length === 1) tTxt = spedFpEurP(+tk[0]) + (s.ohne ? ' <span style="color:#dc2626;font-weight:900;">· ' + n(s.ohne) + ' ohne</span>' : '');
+    else { var cnt = 0, sum = 0; tk.forEach(function(k){ cnt += s.tarife[k]; sum += (+k) * s.tarife[k]; }); tTxt = 'Ø ' + spedFpEur(cnt ? sum / cnt : 0) + ' <span style="color:#94a3b8;">(' + tk.length + ' Tarife)</span>' + (s.ohne ? ' <span style="color:#dc2626;font-weight:900;">· ' + n(s.ohne) + ' ohne</span>' : ''); }
+    var share = tot ? s.kosten / tot * 100 : 0;
+    return '<tr>'
+      + '<td style="' + td + '">' + (s.muted ? '' : spedOvDot(s.key, 8)) + '<b style="color:' + (s.muted ? '#64748b' : '#0f172a') + ';">' + spedOvEsc(s.key) + '</b></td>'
+      + '<td style="' + td + 'text-align:right;">' + n(s.n) + '</td>'
+      + '<td style="' + td + 'text-align:right;color:#64748b;">' + spedOvDec(nTot ? s.n / nTot * 100 : 0, 1) + ' %</td>'
+      + '<td style="' + td + 'text-align:right;">' + tTxt + '</td>'
+      + '<td style="' + td + 'text-align:right;font-weight:950;color:#0f172a;">' + spedFpEur(s.kosten) + '</td>'
+      + '<td style="' + td + '"><div style="display:flex;align-items:center;gap:7px;"><div style="width:90px;height:6px;background:#edf2f7;border-radius:999px;overflow:hidden;"><div style="height:100%;width:' + Math.max(share ? 2 : 0, Math.round(share)) + '%;background:' + SPED_FP_C.sped + ';border-radius:999px;"></div></div><span style="font-size:10px;color:#475569;font-weight:850;">' + spedOvDec(share, 1) + ' %</span></div></td>'
+      + '</tr>';
+  }).join('');
+  return '<div style="' + SPED_OV_CARD + 'overflow:hidden;">'
+    + '<div style="overflow-x:auto;"><table class="sped-ov-tbl" style="width:100%;border-collapse:collapse;font-size:11px;min-width:720px;">'
+    + '<thead><tr style="background:#f8fafc;color:#64748b;text-transform:uppercase;letter-spacing:.35px;font-size:9px;">'
+    + '<th style="padding:8px 9px;text-align:left;">Spedition</th><th style="padding:8px 9px;text-align:right;">Fahrten</th><th style="padding:8px 9px;text-align:right;">Anteil</th>'
+    + '<th style="padding:8px 9px;text-align:right;">Tarif / Fahrt</th><th style="padding:8px 9px;text-align:right;">Kosten Ist</th><th style="padding:8px 9px;text-align:left;">Kostenanteil</th></tr></thead>'
+    + '<tbody>' + body
+    + '<tr style="background:#f8fafc;font-weight:950;color:#0f172a;"><td style="' + td + '">Gesamt</td><td style="' + td + 'text-align:right;">' + n(nTot) + '</td><td style="' + td + 'text-align:right;">100 %</td><td style="' + td + 'text-align:right;">Ø ' + spedFpEur(nTot ? tot / nTot : 0) + '</td><td style="' + td + 'text-align:right;">' + spedFpEur(tot) + '</td><td style="' + td + '"></td></tr>'
+    + '</tbody></table></div></div>';
+}
+
+function spedFpExtraListe(M){
+  var L = [];
+  M.days.forEach(function(x){ (x.extra || []).forEach(function(t){ L.push({iso:x.iso, wd:x.wd, r:t.r, v:t.v, zbv:t.zbv}); }); });
+  return L;
+}
+function spedFpExtraHtml(M){
+  if(!M.std.has) return '';
+  var L = spedFpExtraListe(M);
+  if(!L.length) return '<div style="' + SPED_OV_CARD + 'padding:12px 14px;font-size:11px;color:#15803d;font-weight:850;">Keine Zusatzfahrten im Zeitraum – alle Spediteurfahrten entsprechen dem Standard.</div>';
+  var by = {};
+  L.forEach(function(e){ var g = spedOvGroup(e.r), G = by[g] || (by[g] = {key:g, n:0, k:0, lin:{}}); G.n++; G.k += e.v; var ln = String(e.r.kf || e.r.nr) + " " + (e.r.name || ""); G.lin[ln] = (G.lin[ln] || 0) + 1; });
+  var groups = Object.keys(by).map(function(k){ return by[k]; }).sort(function(a, b){ return b.k - a.k; });
+  var total = L.reduce(function(a, e){ return a + e.v; }, 0), maxK = groups.length ? groups[0].k : 1;
+  var td = 'padding:6px 9px;border-bottom:1px solid #eef2f6;white-space:nowrap;';
+  var sum = groups.map(function(G){
+    var w = Math.max(2, Math.round(G.k / maxK * 100));
+    return '<tr><td style="' + td + '">' + spedOvDot(G.key, 8) + '<b style="color:#0f172a;">' + spedOvEsc(G.key) + '</b></td>'
+      + '<td style="' + td + 'text-align:right;">' + spedOvNum(G.n) + '</td>'
+      + '<td style="' + td + 'text-align:right;font-weight:950;color:' + SPED_FP_C.bad + ';">' + spedFpEur(G.k) + '</td>'
+      + '<td style="' + td + '"><div style="width:120px;height:6px;background:#edf2f7;border-radius:999px;overflow:hidden;"><div style="height:100%;width:' + w + '%;background:' + SPED_FP_BAR.bad + ';"></div></div></td>'
+      + '<td style="' + td + 'color:#64748b;font-size:10px;white-space:normal;">' + spedOvEsc(Object.keys(G.lin).sort().map(function(k){ return k + " (" + G.lin[k] + ")"; }).join(", ")) + '</td></tr>';
+  }).join('');
+  var det = L.slice().sort(function(a, b){ return a.iso < b.iso ? -1 : (a.iso > b.iso ? 1 : String(a.r.zeit).localeCompare(String(b.r.zeit))); }).map(function(e){
+    return '<tr><td style="' + td + '">' + spedOvEsc(SPED_OV_WD_SHORT[e.wd] + " " + spedOvDateDe(e.iso)) + '</td><td style="' + td + '">' + spedOvEsc(e.r.zeit || "–") + '</td>'
+      + '<td style="' + td + '">' + spedOvDot(spedOvGroup(e.r), 7) + spedOvEsc(String(e.r.kf || e.r.nr) + " " + (e.r.name || "")) + '</td>'
+      + '<td style="' + td + 'font-weight:900;">' + spedOvEsc(e.r.tour || "–") + (e.zbv ? ' <span style="color:#94a3b8;font-weight:700;">z.b.v.</span>' : '') + '</td>'
+      + '<td style="' + td + 'text-align:right;">' + spedFpEurP(e.v) + '</td></tr>';
+  }).join('');
+  var th = 'padding:6px 9px;text-align:left;font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.3px;';
+  return '<div style="' + SPED_OV_CARD + 'overflow:hidden;">'
+    + '<div style="overflow-x:auto;"><table class="sped-ov-tbl" style="width:100%;border-collapse:collapse;font-size:11px;min-width:760px;">'
+    + '<thead><tr><th style="' + th + '">Spedition</th><th style="' + th + 'text-align:right;">Zusatzfahrten</th><th style="' + th + 'text-align:right;">Mehrkosten</th><th style="' + th + '"></th><th style="' + th + '">Linien</th></tr></thead>'
+    + '<tbody>' + sum + '<tr style="background:#f8fafc;font-weight:950;"><td style="' + td + '">Gesamt</td><td style="' + td + 'text-align:right;">' + spedOvNum(L.length) + '</td><td style="' + td + 'text-align:right;color:' + SPED_FP_C.bad + ';">' + spedFpEur(total) + '</td><td style="' + td + '"></td><td style="' + td + '"></td></tr></tbody></table></div>'
+    + '<details style="padding:8px 14px;border-top:1px solid #eef2f6;"><summary style="cursor:pointer;font-size:11px;font-weight:900;color:#334155;">Alle ' + spedOvNum(L.length) + ' Zusatzfahrten einzeln</summary>'
+    + '<div style="overflow-x:auto;margin-top:6px;"><table class="sped-ov-tbl" style="width:100%;border-collapse:collapse;font-size:11px;min-width:640px;">'
+    + '<thead><tr><th style="' + th + '">Tag</th><th style="' + th + '">Abfahrt</th><th style="' + th + '">Linie</th><th style="' + th + '">Tour</th><th style="' + th + 'text-align:right;">Preis</th></tr></thead>'
+    + '<tbody>' + det + '</tbody></table></div></details></div>';
+}
+function spedFpPruefZeilen(P, M){
+  var regeln = M.regeln || [];
+  return Object.keys(P.zeilen).map(function(k){ return P.zeilen[k]; }).sort(function(a, b){
+    var oa = a.regel >= 0 ? a.regel : (a.src === "fehlt" ? 1e6 : 1e5), ob = b.regel >= 0 ? b.regel : (b.src === "fehlt" ? 1e6 : 1e5);
+    return oa - ob;
+  }).map(function(Z){
+    var R = Z.regel >= 0 ? regeln[Z.regel] : null, pk = Object.keys(Z.preise).map(Number);
+    var bsp = Object.keys(Z.bsp).sort(function(a, b){ return Z.bsp[b] - Z.bsp[a]; });
+    return {n:Z.n, kosten:Z.kosten, src:Z.src,
+            label:R ? (R.bez || "Regel " + (Z.regel + 1)) : (Z.src === "fehlt" ? "ohne Tarif" : "Standardtarif (keine Regel passt)"),
+            bed:R ? spedFpRegelTxt(R) : (Z.src === "fehlt" ? "keine Regel, kein Standardtarif → 0 €" : "Rückfall auf Standardtarif"),
+            preisTxt:pk.length === 1 ? spedFpEurP(pk[0]) : (pk.length ? spedFpEurP(Math.min.apply(null, pk)) + " – " + spedFpEurP(Math.max.apply(null, pk)) : "–"),
+            bspTxt:bsp.slice(0, 8).map(function(b){ return b + ": " + Z.bsp[b]; }).join(", ") + (bsp.length > 8 ? " …" : "")};
+  });
+}
+function spedFpPruefHtml(M){
+  if(!M.pruef || !M.pruef.length) return '';
+  var offen = 0, std = 0;
+  M.pruef.forEach(function(P){ Object.keys(P.zeilen).forEach(function(k){ var Z = P.zeilen[k]; if(Z.src === "fehlt") offen += Z.n; else if(Z.regel < 0) std += Z.n; }); });
+  var td = 'padding:6px 9px;border-bottom:1px solid #eef2f6;';
+  var body = M.pruef.map(function(P){
+    return '<tr style="background:#f8fafc;"><td colspan="3" style="' + td + 'font-weight:950;color:#0f172a;">' + spedOvDot(P.key, 8) + spedOvEsc(P.key) + '</td>'
+      + '<td style="' + td + 'text-align:right;font-weight:950;">' + spedOvNum(P.n) + '</td><td style="' + td + 'text-align:right;font-weight:950;">' + spedFpEur(P.kosten) + '</td><td style="' + td + '"></td></tr>'
+      + spedFpPruefZeilen(P, M).map(function(Z){
+          var col = Z.src === "fehlt" ? "#dc2626" : (Z.src === "regel" ? "#334155" : "#b45309");
+          return '<tr><td style="' + td + 'padding-left:24px;color:' + col + ';font-weight:850;">' + spedOvEsc(Z.label) + '</td>'
+            + '<td style="' + td + 'color:#64748b;">' + spedOvEsc(Z.bed) + '</td>'
+            + '<td style="' + td + 'text-align:right;white-space:nowrap;">' + spedOvEsc(Z.preisTxt) + '</td>'
+            + '<td style="' + td + 'text-align:right;">' + spedOvNum(Z.n) + '</td>'
+            + '<td style="' + td + 'text-align:right;white-space:nowrap;">' + spedFpEur(Z.kosten) + '</td>'
+            + '<td style="' + td + 'color:#94a3b8;font-size:10px;">' + spedOvEsc(Z.bspTxt) + '</td></tr>';
+        }).join('');
+  }).join('');
+  var sum = (offen ? '<span style="color:#dc2626;font-weight:900;">' + spedOvNum(offen) + ' Fahrten ohne Tarif</span>' : '<span style="color:#15803d;font-weight:900;">alle Fahrten bepreist</span>')
+    + (std ? ' · <span style="color:#b45309;font-weight:900;">' + spedOvNum(std) + ' über Standardtarif</span>' : '');
+  return '<details' + (offen ? ' open' : '') + ' style="' + SPED_OV_CARD + 'padding:10px 14px;margin-top:10px;">'
+    + '<summary style="cursor:pointer;font-size:11px;font-weight:950;color:#334155;">Tarif-Prüfung: welche Regel greift · ' + sum + '</summary>'
+    + '<div style="font-size:10px;color:#94a3b8;margin:6px 0 4px;">Beispiele = Tournummern der Fahrten ohne passende Regel. Regeln unter ⚙ Vorgaben anpassen.</div>'
+    + '<div style="overflow-x:auto;"><table class="sped-ov-tbl" style="width:100%;border-collapse:collapse;font-size:11px;min-width:900px;">'
+    + '<thead><tr style="color:#64748b;text-transform:uppercase;letter-spacing:.3px;font-size:9px;"><th style="padding:6px 9px;text-align:left;">Regel</th><th style="padding:6px 9px;text-align:left;">Bedingung</th><th style="padding:6px 9px;text-align:right;">Preis</th><th style="padding:6px 9px;text-align:right;">Fahrten</th><th style="padding:6px 9px;text-align:right;">Kosten</th><th style="padding:6px 9px;text-align:left;">Beispiele</th></tr></thead>'
+    + '<tbody>' + body + '</tbody></table></div></details>';
+}
+
+var SPED_FP_STD_SEL = "";
+function spedFpStdPick(k){ SPED_FP_STD_SEL = String(k || ""); var el = document.getElementById("sped-fp-std"); if(el && SPED_FP_MODEL) el.innerHTML = spedFpStdInner(SPED_FP_MODEL); }
+function spedFpStdInner(M){
+  var A = M.std, sel = SPED_FP_STD_SEL && A.v[SPED_FP_STD_SEL] ? SPED_FP_STD_SEL : A.keys[0], S = A.v[sel];
+  var lin = {}, order = [];
+  S.rows.forEach(function(r, i){
+    var id = String(r.kf || r.nr);
+    var L = lin[id] || (lin[id] = (order.push(id), {nr:id, name:r.name, gruppe:r.gruppe, tage:[[],[],[],[],[],[],[]], sum:0}));
+    L.tage[r.wdi].push({tour:r.tour, zeit:r.zeit, zbv:r.zbv, erg:r.erg, p:S.preise[i]});
+    L.sum += S.preise[i].v;
+  });
+  order.sort(function(a, b){ return a.localeCompare(b, undefined, {numeric:true}); });
+  var td = 'padding:5px 7px;border-bottom:1px solid #eef2f6;vertical-align:top;';
+  var body = order.map(function(nr){
+    var L = lin[nr];
+    return '<tr><td style="' + td + 'white-space:nowrap;">' + spedOvDot(L.gruppe, 7) + '<b style="color:#0f172a;">' + spedOvEsc(L.nr) + '</b> <span style="color:#64748b;">' + spedOvEsc(L.name) + '</span></td>'
+      + L.tage.map(function(list){
+          return '<td style="' + td + 'white-space:nowrap;">' + list.map(function(e){
+            var col = e.p.src === "fehlt" ? "#dc2626" : (e.zbv ? "#94a3b8" : "#334155");
+            return '<div style="line-height:1.35;"><b style="color:' + col + ';">' + spedOvEsc(e.tour) + '</b> <span style="color:#94a3b8;">' + spedOvEsc(e.zeit) + '</span>'
+              + (e.erg ? ' <span title="Ergänzung zur Vorlage" style="font-size:8.5px;font-weight:900;color:#7c3aed;background:#f5f3ff;border-radius:4px;padding:0 4px;">Erg.</span>' : '')
+              + '<br><span style="font-size:9.5px;color:' + col + ';">' + spedFpEurP(e.p.v) + '</span></div>';
+          }).join('') + '</td>';
+        }).join('')
+      + '<td style="' + td + 'text-align:right;font-weight:950;white-space:nowrap;">' + spedFpEur(L.sum) + '</td></tr>';
+  }).join('');
+  var foot = '<tr style="background:#f8fafc;font-weight:950;color:#0f172a;"><td style="' + td + '">Soll je Wochentag</td>'
+    + [0,1,2,3,4,5,6].map(function(w){
+        return '<td style="' + td + 'white-space:nowrap;">' + (S.touren ? spedOvNum(S.touren[w]) + ' Touren, davon ' : '') + spedOvNum(S.fremd[w]) + ' Sped.'
+          + (S.fahrten[w] > S.fremd[w] ? ' <span style="color:#94a3b8;font-weight:700;">+' + (S.fahrten[w] - S.fremd[w]) + ' z.b.v.</span>' : '')
+          + (S.touren && S.touren[w] ? '<br><span style="color:#1e6091;">Eigenanteil ' + spedFpPct(1 - S.fremd[w] / S.touren[w], 0) + '</span>' : '')
+          + '<br>' + spedFpEur(S.kosten[w]) + '</td>';
+      }).join('')
+    + '<td style="' + td + 'text-align:right;white-space:nowrap;">' + spedFpEur(S.wocheKosten) + '</td></tr>';
+  var th = 'padding:6px 7px;text-align:left;';
+  var tabs = A.keys.length > 1 ? '<div style="display:inline-flex;gap:3px;padding:3px;background:#e2e8f0;border-radius:9px;margin:4px 0 8px;">'
+    + A.keys.map(function(k){
+        var on = k === sel;
+        return '<button type="button" onclick="spedFpStdPick(\'' + k + '\')" style="padding:5px 11px;border:0;border-radius:7px;font:900 10.5px Segoe UI,Arial;cursor:pointer;'
+          + (on ? 'background:#fff;color:#0f172a;box-shadow:0 1px 4px rgba(15,23,42,.14);' : 'background:transparent;color:#64748b;') + '">' + spedOvEsc(A.v[k].label) + ' · ' + spedFpEur(A.v[k].wocheKosten) + '</button>';
+      }).join('') + '</div>' : '';
+  return tabs + '<div style="overflow-x:auto;"><table class="sped-ov-tbl" style="width:100%;border-collapse:collapse;font-size:10.5px;min-width:1100px;">'
+    + '<thead><tr style="color:#64748b;text-transform:uppercase;letter-spacing:.3px;font-size:9px;"><th style="' + th + '">Linie</th>'
+    + SPED_OV_WD.map(function(w){ return '<th style="' + th + '">' + w + '</th>'; }).join('') + '<th style="' + th + 'text-align:right;">Woche</th></tr></thead>'
+    + '<tbody>' + body + foot + '</tbody></table></div>';
+}
+function spedFpRotHtml(M){
+  var A = M.std, R = M.rot;
+  if(!A.has || A.keys.length < 2) return '';
+  var suns = {};
+  M.days.forEach(function(x){ suns[spedFpWeekSun(x.iso)] = 1; });
+  var list = Object.keys(suns).sort();
+  if(!list.length) return '';
+  var cells = list.map(function(sun){
+    var S = spedFpVarFor(M, sun), e = R[sun], kw = spedOvWeekKey(spedFpIsoAdd(sun, 1)).split("-")[1];
+    var txt = R.start ? "Rotation" : (e ? (e.src === "erkannt" ? Math.round(e.score * 100) + " % Treffer" : "unklar → Ø") : "keine Daten → Ø");
+    var col = (S && S.key !== "avg") ? "#0f172a" : "#b45309";
+    return '<div style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;min-width:118px;">'
+      + '<div style="font-size:9px;color:#94a3b8;font-weight:900;">KW ' + kw + ' · So ' + spedOvDateShort(sun) + '</div>'
+      + '<div style="font-size:12px;font-weight:950;color:' + col + ';">' + spedOvEsc(S ? S.label : "–") + '</div>'
+      + '<div style="font-size:9px;color:#94a3b8;">' + spedOvEsc(txt) + '</div></div>';
+  }).join('');
+  return '<div style="margin:2px 0 8px;"><div style="font-size:10px;font-weight:900;color:#475569;margin-bottom:4px;">Welche Vorlage gilt in welcher Woche'
+    + (R.start ? ' (Rotation ab So ' + spedOvDateDe(R.start) + ' = Tour ' + A.keys[0] + ')' : ' (automatisch über die Spediteurfahrten erkannt; fest einstellbar unter ⚙ Vorgaben)') + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + cells + '</div></div>';
+}
+function spedFpIsoAdd(iso, n){
+  var p = String(iso).split("-"), d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n));
+  return d.toISOString().slice(0, 10);
+}
+function spedFpStdHtml(M){
+  var A = M.std;
+  if(!A || !A.has) return '';
+  var head = A.mode === "vorlagen"
+    ? 'Standardwochen (Soll-Basis) · Vorlagen ' + A.keys.map(function(k){ return "Tour " + k; }).join(", ") + ' · Ø ' + spedFpEur(A.avg.wocheKosten) + ' je Woche'
+    : 'Standardwoche (Soll-Basis) · ' + spedOvNum(A.v["1"].wocheFahrten) + ' Fahrten · ' + spedFpEur(A.v["1"].wocheKosten) + ' je Woche';
+  var hint = A.mode === "vorlagen"
+    ? 'Aus den Vorlagen Tour 1–4 (Upload Tourzuordnung' + (A.stand ? ', eingelesen ' + A.stand : '') + ')' + ((A.erg || []).length ? ' plus ' + A.erg.length + ' Ergänzungen je Woche (lila „Erg.“, Vorgaben-Excel Blatt „Ergaenzung“)' : '') + '. Alles darüber ist Zusatzfahrt wegen Personalmangel. Tag = Abfahrtstag wie im Tourenplan; Preise über die Tarifregeln, z.b.v. grau.'
+    : 'Feste Standardwoche aus dem Generator. Genauer: Vorlage Tour 1–4.xlsx in Streamlit bei „Tourzuordnung“ hochladen.';
+  return '<details style="' + SPED_OV_CARD + 'padding:10px 14px;margin-top:10px;"><summary style="cursor:pointer;font-size:11px;font-weight:950;color:#334155;">' + spedOvEsc(head)
+    + (A.ohne ? ' · <span style="color:#dc2626;">' + A.ohne + ' ohne Tarif</span>' : '') + '</summary>'
+    + '<div style="font-size:10px;color:#94a3b8;margin:6px 0 6px;">' + spedOvEsc(hint) + '</div>'
+    + spedFpRotHtml(M)
+    + '<div id="sped-fp-std">' + spedFpStdInner(M) + '</div></details>';
+}
+
+var SPED_FP_DEFS = [
+  ["Tourenplanung", "Ist = Touren im Tourenplan je Betriebstag (eigen + Spedition + sonstige Externe + unbesetzt). Soll = Touren der Vorlage Tour 1–4, die in der Woche gilt (Rotation per Startdatum oder automatisch über die Spediteurfahrten erkannt); ohne Vorlagen Vorgabe je Wochentag bzw. Regelplan (Median). Hof, Werkstatt, Verladung, Schule und z.b.v. sind keine Touren. Tage ohne Tourenplan (z. B. Feiertage) zählen nicht."],
+  ["Eigenanteil", "Eigene Touren ÷ besetzte Touren (eigen + Spedition + sonstige Externe). Soll = Vorgabe in %, sonst aus der Vorlage: 1 − Spediteurtouren ÷ Touren (unbesetzte Vorlagen-Touren zählen als eigen)."],
+  ["Krankenquote", "Krankheitstage ÷ Personentage der eigenen Fahrer (eingesetzt + krank) aus den Einträgen „Krank“ im Tourenplan, nur an Betriebstagen."],
+  ["Kosten Spediteure", "Spediteurfahrten × Tarif: erste passende Tarifregel der Spedition (Tour, Text, Linie, Schicht, Edeka-LKW), sonst Standardtarif der Spedition bzw. allgemeiner Standardtarif; sonstige Externe × allgemeiner Standardtarif. Soll = Monatsbudget (nach Standardwoche auf die Tage verteilt, laufender Monat anteilig); ohne Budget = Standardwoche × Tarifregeln je Betriebstag; ohne beides = Soll-Touren × (1 − Eigenanteil-Soll) × Ø-Tarif. z.b.v.-Fahrten der Spediteure kosten, zählen aber nicht als Tour."],
+  ["Zusatzfahrten (Personalmangel)", "Je Tag werden die Spediteurfahrten aus dem Tourenplan mit dem Standard verglichen (gleiche Linie + Tour, dann gleiche Linie, dann gleiche Spedition). Jede Fahrt darüber hinaus ist eine Zusatzfahrt wegen Personalmangel, mit ihrem Tarif als Mehrkosten. Eigenanteil ohne Zusatzfahrten = (eigen + Zusatzfahrten) ÷ besetzte Touren. Ohne Standardwochen: Schätzung über Krankheitstage über der Soll-Quote."],
+  ["Grundsatz", "Ist kommt immer aus den hochgeladenen Wochen-Tourenplänen. Soll = Standard: Vorlage Tour 1–4 der Woche (plus ggf. Ergänzungen aus dem Vorgaben-Excel). Jede Spediteurfahrt darüber hinaus ist eine Zusatzfahrt wegen Personalmangel."],
+  ["Ampel", "Grün = im Ziel, Gelb = innerhalb Toleranz, Rot = außerhalb. Toleranzen unter ⚙ Vorgaben."]
+];
+function spedFpDefsHtml(M){
+  var T = M.V.toleranz;
+  return '<details style="' + SPED_OV_CARD + 'padding:10px 14px;margin-top:10px;"><summary style="cursor:pointer;font-size:11px;font-weight:950;color:#334155;">Berechnung &amp; Definitionen</summary>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px 18px;margin-top:9px;">'
+    + SPED_FP_DEFS.map(function(d){ return '<div style="font-size:10.5px;color:#475569;line-height:1.5;"><b style="color:#0f172a;">' + spedOvEsc(d[0]) + ':</b> ' + spedOvEsc(d[1]) + '</div>'; }).join('')
+    + '<div style="font-size:10.5px;color:#475569;line-height:1.5;"><b style="color:#0f172a;">Aktuelle Toleranzen:</b> '
+    + Object.keys(SPED_FP_TOL_LABEL).map(function(k){ return spedOvEsc(SPED_FP_TOL_LABEL[k]) + " " + spedOvDec(T[k], 1); }).join(" · ") + '</div>'
+    + '</div></details>';
+}
+
+// ── Vorgaben-Editor ─────────────────────────────────────────────────────────
+function spedFpEditorHtml(M){
+  var V = SPED_FP_DRAFT || M.V, Y = M.Y || String(new Date().getFullYear());
+  function inp(attr, val, ph, w){
+    return '<input ' + attr + ' value="' + spedOvEsc(spedFpFmtIn(val)) + '" placeholder="' + spedOvEsc(ph || '') + '" inputmode="decimal" autocomplete="off"'
+      + ' style="width:' + (w || 84) + 'px;padding:6px 8px;border:1.5px solid #cbd5e1;border-radius:7px;font:800 12px Segoe UI,Arial;color:#0f172a;text-align:right;background:#fff;">';
+  }
+  function field(label, html, unit){
+    return '<label style="display:flex;flex-direction:column;gap:3px;font-size:9.5px;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:.35px;">'
+      + spedOvEsc(label) + '<span style="display:flex;align-items:center;gap:5px;text-transform:none;letter-spacing:0;">' + html + (unit ? '<span style="font-size:11px;color:#94a3b8;font-weight:800;">' + spedOvEsc(unit) + '</span>' : '') + '</span></label>';
+  }
+  function block(title, sub, body){
+    return '<div style="padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fbfcfe;">'
+      + '<div style="font-size:11px;font-weight:950;color:#0f172a;">' + spedOvEsc(title) + '</div>'
+      + (sub ? '<div style="font-size:9.5px;color:#94a3b8;margin:1px 0 7px;">' + spedOvEsc(sub) + '</div>' : '<div style="height:6px;"></div>')
+      + '<div style="display:flex;gap:9px;flex-wrap:wrap;align-items:flex-end;">' + body + '</div></div>';
+  }
+  var tmap = spedFpTarifMap(V), groups = spedFpGroupsAll(), gl = {};
+  groups.forEach(function(g){ gl[g.toLowerCase()] = 1; });
+  var extra = Object.keys(V.tarife).filter(function(k){ return !gl[k.toLowerCase()]; });
+  var wd = SPED_OV_WD.map(function(w, i){
+    var auto = M.autoWd[i];
+    return field(SPED_OV_WD_SHORT[i], inp('data-fp-wd="' + i + '"', V.touren_soll_wd[i], auto != null ? "auto " + spedOvDec(auto, 0) : "–", 70));
+  }).join('');
+  var bud = '';
+  for(var m=1;m<=12;m++){
+    var mk = Y + "-" + String(m).padStart(2,"0");
+    bud += field(SPED_OV_MON_SHORT[m-1], inp('data-fp-budget="' + mk + '"', V.budget[mk], "", 84));
+  }
+  var tar = groups.map(function(g){
+    return field(g, inp('data-fp-tarif="' + spedOvEsc(g) + '"', tmap[g.toLowerCase()], "", 78), "€");
+  }).join('') || '<div style="font-size:10px;color:#94a3b8;">Noch keine Speditionen in den Daten.</div>';
+  return '<div id="sped-fp-editor" style="' + SPED_OV_CARD + 'padding:12px 14px;margin-bottom:12px;border:1.5px solid #b9cce3;">'
+    + spedOvCardHead("⚙ Soll-Vorgaben", "Leer = automatisch / nicht gesetzt. Speichern wirkt sofort in diesem Browser; für alle: „Vorgaben als Excel“ in Streamlit unter Zusatzdateien hochladen.",
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + spedFpBtn("✓ Übernehmen", "spedFpEditorSave()", "green") + spedFpBtn("Vorgaben als Excel", "spedFpExportVorgaben()", "blue", "Vorlage für den Streamlit-Upload „Spediteure Soll-Vorgaben“") + spedFpBtn("Schließen", "spedFpToggleEditor()", "gray") + '</div>')
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:9px;">'
+    + block("Ziele", "Eigenanteil und Krankenquote in %, Standardtarif für Fahrten ohne eigenen Tarif",
+        field("Eigenanteil Soll", inp('data-fp="eigenanteil_soll"', V.eigenanteil_soll, "z.B. 85"), "%")
+        + field("Krankenquote Soll", inp('data-fp="krankenquote_soll"', V.krankenquote_soll, "z.B. 6"), "%")
+        + field("Standardtarif", inp('data-fp="tarif_standard"', V.tarif_standard || null, "0"), "€ / Fahrt")
+        + (M.std.keys.length > 1 ? field("Tour 1 gilt ab Sonntag", '<input type="date" data-fp-rot="1" value="' + spedOvEsc(V.rotation_start || "") + '" style="padding:5px 8px;border:1.5px solid #cbd5e1;border-radius:7px;font:800 12px Segoe UI,Arial;color:#0f172a;">', "leer = automatisch") : ''))
+    + block("Toleranzen Ampel", "Grenze zwischen Gelb und Rot",
+        Object.keys(SPED_FP_TOL_LABEL).map(function(k){ return field(SPED_FP_TOL_LABEL[k], inp('data-fp-tol="' + k + '"', V.toleranz[k], "", 64)); }).join(''))
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr;gap:9px;margin-top:9px;">'
+    + block("Soll-Touren je Wochentag", "Leer = Regelplan automatisch (Median " + Y + ")", wd)
+    + block("Budget Spediteurkosten " + Y + " (€ je Monat)", "Leer = Soll-Kosten werden aus Soll-Touren × (1 − Eigenanteil-Soll) × Ø-Tarif abgeleitet", bud)
+    + block("Standardtarif je Spedition (€ je Fahrt, nur wenn keine Tarifregel greift)", extra.length ? ("Zusätzlich aus Excel (Linie/Nr.): " + extra.map(function(k){ return k + " " + spedFpEur(V.tarife[k]); }).join(" · ")) : "Leer = keine Rückfallstufe; dann zählt die Fahrt als „ohne Tarif“", tar)
+    + spedFpRegelEditorHtml(V, groups)
+    + '</div></div>';
+}
+function spedFpRegelTxt(R){
+  var p = [];
+  if(R.touren) p.push("Tour " + R.touren);
+  if(R.text) p.push("Text „" + R.text + "“");
+  if(R.linie) p.push("Linie " + R.linie);
+  if(R.schicht) p.push(SPED_FP_SCHICHT[R.schicht]);
+  if(R.lkw) p.push(SPED_FP_LKW[R.lkw]);
+  if(R.abrechnung === "tag") p.push("Preis je Linie und Tag");
+  return p.length ? p.join(" · ") : "immer (Standard der Spedition)";
+}
+function spedFpRegelEditorHtml(V, groups){
+  var inp = 'padding:5px 6px;border:1.5px solid #cbd5e1;border-radius:6px;font:800 11px Segoe UI,Arial;color:#0f172a;background:#fff;';
+  function sel(i, f, map, val){
+    return '<select data-r="' + i + '" data-rf="' + f + '" style="' + inp + '">' + Object.keys(map).map(function(k){
+      return '<option value="' + k + '"' + (k === val ? ' selected' : '') + '>' + spedOvEsc(map[k]) + '</option>'; }).join('') + '</select>';
+  }
+  function txt(i, f, val, w, ph, right){
+    return '<input data-r="' + i + '" data-rf="' + f + '" value="' + spedOvEsc(val) + '" placeholder="' + spedOvEsc(ph || '') + '" autocomplete="off" list="' + (f === "spedition" ? 'sped-fp-dl' : '') + '" style="' + inp + 'width:' + w + 'px;' + (right ? 'text-align:right;' : '') + '">';
+  }
+  var names = spedOvUniq(groups.concat(V.tarifregeln.map(function(r){ return r.spedition; })));
+  var td = 'padding:3px 4px;border-bottom:1px solid #eef2f6;white-space:nowrap;';
+  var last = "";
+  var body = V.tarifregeln.map(function(R, i){
+    var neu = R.spedition !== last; last = R.spedition;
+    return '<tr style="' + (neu && i ? 'border-top:2px solid #e2e8f0;' : '') + (R.aktiv ? '' : 'opacity:.55;') + '">'
+      + '<td style="' + td + '">' + txt(i, "spedition", R.spedition, 120) + '</td>'
+      + '<td style="' + td + '">' + txt(i, "bez", R.bez, 170) + '</td>'
+      + '<td style="' + td + '">' + txt(i, "preis", spedFpFmtIn(R.preis), 72, "€", true) + '</td>'
+      + '<td style="' + td + '">' + txt(i, "touren", R.touren, 150) + '</td>'
+      + '<td style="' + td + '">' + txt(i, "text", R.text, 130) + '</td>'
+      + '<td style="' + td + '">' + txt(i, "linie", R.linie, 60) + '</td>'
+      + '<td style="' + td + '">' + sel(i, "schicht", SPED_FP_SCHICHT, R.schicht) + '</td>'
+      + '<td style="' + td + '">' + sel(i, "lkw", SPED_FP_LKW, R.lkw) + '</td>'
+      + '<td style="' + td + '">' + sel(i, "abrechnung", {fahrt:"je Fahrt", tag:"je Tag"}, R.abrechnung) + '</td>'
+      + '<td style="' + td + 'text-align:center;"><input type="checkbox" data-r="' + i + '" data-rf="aktiv"' + (R.aktiv ? ' checked' : '') + '></td>'
+      + '<td style="' + td + '"><button type="button" onclick="spedFpRegelMove(' + i + ')" title="Nach oben (höhere Priorität)" style="border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:3px 7px;cursor:pointer;font-weight:900;color:#334155;">↑</button> '
+      + '<button type="button" onclick="spedFpRegelDel(' + i + ')" title="Regel löschen" style="border:1px solid #fecaca;background:#fff;border-radius:6px;padding:3px 7px;cursor:pointer;font-weight:900;color:#dc2626;">✕</button></td>'
+      + '</tr>';
+  }).join('');
+  var th = 'padding:5px 4px;text-align:left;font-size:9px;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;';
+  return '<div style="padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fbfcfe;">'
+    + '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:flex-start;">'
+    + '<div><div style="font-size:11px;font-weight:950;color:#0f172a;">Tarifregeln (€ je Fahrt)</div>'
+    + '<div style="font-size:9.5px;color:#94a3b8;margin-top:1px;max-width:900px;">Je Spedition gilt die erste passende Regel von oben. Touren: x = beliebige Ziffer (x884, xx45). Text: „,“ = oder, „+“ = und. Doppelschicht = Linie fährt ≥ 2 Touren am Tag; 2.+ Fahrt = ab der zweiten Tour der Linie am Tag. Edeka-LKW = bei der Spediteur-Zeile steht im Wochenplan eine LKW-Nr. (Spalte K/L).</div></div>'
+    + spedFpBtn("+ Regel", "spedFpRegelAdd()", "gray") + '</div>'
+    + '<datalist id="sped-fp-dl">' + names.map(function(n){ return '<option value="' + spedOvEsc(n) + '">'; }).join('') + '</datalist>'
+    + '<div style="overflow-x:auto;margin-top:7px;"><table style="border-collapse:collapse;font-size:11px;">'
+    + '<thead><tr><th style="' + th + '">Spedition</th><th style="' + th + '">Bezeichnung</th><th style="' + th + '">Preis €</th><th style="' + th + '">Touren</th><th style="' + th + '">Text enthält</th><th style="' + th + '">Linie</th><th style="' + th + '">Schicht</th><th style="' + th + '">LKW</th><th style="' + th + '">Abrechnung</th><th style="' + th + '">Aktiv</th><th style="' + th + '"></th></tr></thead>'
+    + '<tbody>' + (body || '<tr><td colspan="11" style="padding:14px;color:#94a3b8;">Keine Tarifregeln.</td></tr>') + '</tbody></table></div></div>';
+}
+function spedFpRegelAdd(){
+  SPED_FP_DRAFT = spedFpEditorCollect();
+  var f = SPED_OV_FILTER !== "all" ? SPED_OV_FILTER : "";
+  SPED_FP_DRAFT.tarifregeln.push(spedFpNormRegel({spedition:f, bez:"", preis:null}));
+  spedRender();
+}
+function spedFpRegelDel(i){
+  SPED_FP_DRAFT = spedFpEditorCollect();
+  SPED_FP_DRAFT.tarifregeln.splice(i, 1);
+  spedRender();
+}
+function spedFpRegelMove(i){
+  SPED_FP_DRAFT = spedFpEditorCollect();
+  var a = SPED_FP_DRAFT.tarifregeln;
+  if(i > 0){ var t = a[i - 1]; a[i - 1] = a[i]; a[i] = t; }
+  spedRender();
+}
+function spedFpEditorCollect(){
+  var root = document.getElementById("sped-fp-editor");
+  var V = spedFpNorm(JSON.parse(JSON.stringify(SPED_FP_DRAFT || spedFpVorgaben())));
+  if(!root) return V;
+  function each(sel, fn){ Array.prototype.forEach.call(root.querySelectorAll(sel), fn); }
+  each('[data-fp]', function(el){
+    var k = el.getAttribute("data-fp"), v = spedFpParseNum(el.value);
+    V[k] = (k === "tarif_standard") ? (v || 0) : v;
+  });
+  each('[data-fp-rot]', function(el){ V.rotation_start = el.value ? spedFpWeekSun(el.value) : ""; });
+  each('[data-fp-tol]', function(el){ var v = spedFpParseNum(el.value); if(v != null && v >= 0) V.toleranz[el.getAttribute("data-fp-tol")] = v; });
+  each('[data-fp-wd]', function(el){ var v = spedFpParseNum(el.value); V.touren_soll_wd[+el.getAttribute("data-fp-wd")] = (v != null && v >= 0) ? v : null; });
+  each('[data-fp-budget]', function(el){ var k = el.getAttribute("data-fp-budget"), v = spedFpParseNum(el.value); if(v == null) delete V.budget[k]; else V.budget[k] = v; });
+  each('[data-fp-tarif]', function(el){
+    var k = el.getAttribute("data-fp-tarif"), v = spedFpParseNum(el.value), kl = k.toLowerCase();
+    Object.keys(V.tarife).forEach(function(x){ if(x.toLowerCase() === kl) delete V.tarife[x]; });
+    if(v != null) V.tarife[k] = v;
+  });
+  var rr = {};
+  each('[data-r]', function(el){
+    var i = +el.getAttribute("data-r"), f = el.getAttribute("data-rf"), o = rr[i] || (rr[i] = {});
+    o[f] = el.type === "checkbox" ? el.checked : el.value;
+  });
+  if(Object.keys(rr).length || root.querySelector('[data-r]') === null){
+    V.tarifregeln = Object.keys(rr).map(Number).sort(function(a, b){ return a - b; })
+      .map(function(i){ return spedFpNormRegel(rr[i]); });
+  }
+  return V;
+}
+function spedFpEditorSave(){
+  var V = spedFpEditorCollect(), emb = spedFpEmbedded();
+  var ok = spedFpLsSet({basis:spedFpBasis(emb), gespeichert:new Date().toLocaleString("de-DE"), vorgaben:V});
+  SPED_FP_EDIT = !ok;
+  if(ok) SPED_FP_DRAFT = null;
+  if(!ok) alert("Vorgaben konnten in diesem Browser nicht gespeichert werden. Bitte „Vorgaben als Excel“ exportieren und in Streamlit hochladen.");
+  spedRender();
+}
+function spedFpToggleEditor(){
+  SPED_FP_EDIT = !SPED_FP_EDIT;
+  SPED_FP_DRAFT = SPED_FP_EDIT ? spedFpNorm(JSON.parse(JSON.stringify(spedFpVorgaben()))) : null;
+  spedRender();
+}
+function spedFpResetLocal(){
+  if(!confirm("Lokale Vorgaben in diesem Browser verwerfen und die eingebetteten Vorgaben verwenden?")) return;
+  spedFpLsSet(null); spedRender();
+}
+
+// ── Excel ───────────────────────────────────────────────────────────────────
+function spedFpVorgabenAoa(V, Y){
+  function nz(v){ return v == null ? "" : v; }
+  var r = [["Bereich", "Schlüssel", "Wert", "Hinweis"]];
+  r.push(["Allgemein", "Eigenanteil Soll %", nz(V.eigenanteil_soll), "Anteil eigener Touren an besetzten Touren"]);
+  r.push(["Allgemein", "Krankenquote Soll %", nz(V.krankenquote_soll), "Krankheitstage ÷ Personentage eigene Fahrer"]);
+  r.push(["Allgemein", "Tarif Standard €", nz(V.tarif_standard), "€ je Fahrt, wenn kein Tarif hinterlegt"]);
+  r.push(["Allgemein", "Rotation Start (Sonntag Tour 1)", V.rotation_start || "", "JJJJ-MM-TT; leer = Vorlage je Woche automatisch erkennen"]);
+  r.push(["Toleranz", "Touren %", V.toleranz.touren_pct, "Ampel: Abweichung Soll-Touren"]);
+  r.push(["Toleranz", "Eigenanteil pp", V.toleranz.eigen_pp, "Ampel: Prozentpunkte unter Soll"]);
+  r.push(["Toleranz", "Krankenquote pp", V.toleranz.kq_pp, "Ampel: Prozentpunkte über Soll"]);
+  r.push(["Toleranz", "Kosten %", V.toleranz.kosten_pct, "Ampel: Prozent über Soll"]);
+  SPED_OV_WD.forEach(function(w, i){ r.push(["Touren Soll", w, nz(V.touren_soll_wd[i]), i === 0 ? "leer = automatisch (Regelplan)" : ""]); });
+  var bk = {}; Object.keys(V.budget).forEach(function(k){ bk[k] = 1; });
+  for(var m=1;m<=12;m++) bk[Y + "-" + String(m).padStart(2,"0")] = 1;
+  Object.keys(bk).sort().forEach(function(k, i){ r.push(["Budget", k, nz(V.budget[k]), i === 0 ? "€ Spediteurkosten je Monat (JJJJ-MM)" : ""]); });
+  var tk = {}, tm = spedFpTarifMap(V);
+  spedFpGroupsAll().forEach(function(g){ tk[g] = tm[g.toLowerCase()]; });
+  Object.keys(V.tarife).forEach(function(k){ if(!Object.keys(tk).some(function(x){ return x.toLowerCase() === k.toLowerCase(); })) tk[k] = V.tarife[k]; });
+  Object.keys(tk).forEach(function(k, i){ r.push(["Tarif", k, nz(tk[k]), i === 0 ? "€ je Fahrt – Spedition, Untergruppe oder Linien-Nr." : ""]); });
+  return r;
+}
+function spedFpRegelnAoa(V){
+  var r = [["Spedition", "Bezeichnung", "Preis €", "Touren", "Text", "Linie", "Schicht", "LKW", "Abrechnung", "Aktiv"]];
+  V.tarifregeln.forEach(function(R){
+    r.push([R.spedition, R.bez, R.preis == null ? "" : R.preis, R.touren, R.text, R.linie, R.schicht, R.lkw, R.abrechnung, R.aktiv ? "ja" : "nein"]);
+  });
+  return r;
+}
+function spedFpRegelnSheet(V){
+  var ws = XLSX.utils.aoa_to_sheet(spedFpRegelnAoa(V));
+  ws['!cols'] = [{wch:18}, {wch:34}, {wch:10}, {wch:30}, {wch:28}, {wch:8}, {wch:9}, {wch:8}, {wch:11}, {wch:7}];
+  return ws;
+}
+function spedFpErgSheet(V){
+  var rows = spedFpKatRows(V.ergaenzung, "erg-"), r = [["Linie", "Wochentag", "Stellzeit", "Tour", "Spedition / Untergruppe"]];
+  rows.forEach(function(x, i){ r.push([V.ergaenzung[i].linie, SPED_OV_WD[x.wdi], x.zeit, x.tour, x.name]); });
+  var ws = XLSX.utils.aoa_to_sheet(r); ws['!cols'] = [{wch:8}, {wch:12}, {wch:10}, {wch:24}, {wch:28}];
+  return ws;
+}
+function spedFpStdSheet(V){
+  var S = spedFpStdWoche(V), r = [["Linie", "Wochentag", "Stellzeit", "Tour", "Spedition / Untergruppe", "Preis € (Tarifregel)"]];
+  S.rows.forEach(function(x, i){ r.push([x.nr, SPED_OV_WD[x.wdi], x.zeit, x.tour, x.name, Math.round(S.preise[i].v * 100) / 100]); });
+  var ws = XLSX.utils.aoa_to_sheet(r);
+  ws['!cols'] = [{wch:8}, {wch:12}, {wch:10}, {wch:24}, {wch:28}, {wch:18}];
+  return ws;
+}
+function spedFpExportVorgaben(){
+  if(typeof XLSX === "undefined"){ alert("Excel-Modul nicht geladen."); return; }
+  var V = SPED_FP_EDIT ? spedFpEditorCollect() : spedFpVorgaben();
+  var Y = String(SPED_OV_JAHR || new Date().getFullYear());
+  var wb = XLSX.utils.book_new(), ws = XLSX.utils.aoa_to_sheet(spedFpVorgabenAoa(V, Y));
+  ws['!cols'] = [{wch:13}, {wch:30}, {wch:12}, {wch:52}];
+  XLSX.utils.book_append_sheet(wb, ws, "Vorgaben");
+  XLSX.utils.book_append_sheet(wb, spedFpRegelnSheet(V), "Tarifregeln");
+  XLSX.utils.book_append_sheet(wb, spedFpStdSheet(V), "Standardwoche");
+  XLSX.utils.book_append_sheet(wb, spedFpErgSheet(V), "Ergaenzung");
+  XLSX.writeFile(wb, "Spediteure_Soll_Vorgaben.xlsx");
+}
+function spedFpExportExcel(){
+  if(typeof XLSX === "undefined"){ alert("Excel-Modul nicht geladen."); return; }
+  var M = SPED_FP_MODEL || spedFpCompute(), V = M.V;
+  var r1 = function(v){ return v == null || isNaN(v) ? "" : Math.round(v * 10) / 10; };
+  var r0 = function(v){ return v == null || isNaN(v) ? "" : Math.round(v); };
+  var p1 = function(f){ return f == null || isNaN(f) ? "" : Math.round(f * 1000) / 10; };
+  var head = ["Zeitraum", "Betriebstage", "Touren Soll", "Touren Ist", "Δ Touren", "Eigen", "Spedition", "Sonst. Externe", "Unbesetzt",
+              "Eigenanteil Ist %", "Eigenanteil Soll %", (M.std.has ? "Eigenanteil ohne Zusatzfahrten %" : "Eigenanteil ohne Mehr-Krankheit %"), "Krankheitstage", "Personentage",
+              "Krankenquote Ist %", "Krankenquote Soll %", "Fremdfahrten Soll", "Fremdfahrten Ist", (M.std.has ? "Zusatzfahrten (Personalmangel)" : "Krankheitsbed. Fremdfahrten"),
+              "Kosten Soll €", "Kosten Ist €", "Δ Kosten €", (M.std.has ? "Mehrkosten Zusatzfahrten €" : "Krankheitsbed. Kosten €"), "Kosten-Soll Basis",
+              "Ampel Touren", "Ampel Eigenanteil", "Ampel Krankenquote", "Ampel Kosten"];
+  function row(a, label){
+    return [label, a.betrieb, r0(a.sollV), a.ist, a.sollV != null ? r0(a.ist - a.sollV) : "", a.eigen, a.sped, a.fremd, a.offen,
+            p1(a.ea), p1(a.eaSoll), p1(a.eaBer), a.krank, a.pers, p1(a.kq), p1(a.kqSoll), r0(a.fremdSollV), a.extern, r1(a.krankExt),
+            r0(a.kostenSollV), r0(a.kosten), a.kostenSollV != null ? r0(a.kosten - a.kostenSollV) : "", r0(a.krankKosten), a.kostenSollSrc,
+            SPED_FP_AMP_TXT[a.amp.touren], SPED_FP_AMP_TXT[a.amp.eigen], SPED_FP_AMP_TXT[a.amp.kq], SPED_FP_AMP_TXT[a.amp.kosten]];
+  }
+  var aoa = [head];
+  M.rows.forEach(function(a){ aoa.push(row(a, M.MO === "all" ? a.long : spedOvDateDe(a.key) + " " + a.wdShort)); });
+  aoa.push(row(M.total, "Gesamt"));
+  var wb = XLSX.utils.book_new(), ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = head.map(function(h, i){ return {wch: i === 0 ? 18 : Math.max(9, Math.min(22, String(h).length + 2))}; });
+  XLSX.utils.book_append_sheet(wb, ws, "Soll_Ist");
+  var sk = [["Spedition", "Fahrten", "Kosten Ist €", "Fahrten ohne Tarif"]];
+  M.speds.forEach(function(s){ sk.push([s.key, s.n, r0(s.kosten), s.ohne]); });
+  if(M.total.fremd) sk.push(["Sonstige Externe (ohne Katalog-Nr.)", M.total.fremd, r0(M.total.fremd * (+V.tarif_standard || 0)), V.tarif_standard ? 0 : M.total.fremd]);
+  var wsS = XLSX.utils.aoa_to_sheet(sk); wsS['!cols'] = [{wch:34}, {wch:9}, {wch:13}, {wch:17}];
+  XLSX.utils.book_append_sheet(wb, wsS, "Kosten_Spedition");
+  var wsV = XLSX.utils.aoa_to_sheet(spedFpVorgabenAoa(V, M.Y || String(new Date().getFullYear())));
+  wsV['!cols'] = [{wch:13}, {wch:30}, {wch:12}, {wch:52}];
+  XLSX.utils.book_append_sheet(wb, wsV, "Vorgaben");
+  XLSX.utils.book_append_sheet(wb, spedFpRegelnSheet(V), "Tarifregeln");
+  XLSX.utils.book_append_sheet(wb, spedFpStdSheet(V), "Standardwoche");
+  if(M.std.has){
+    var vs = [["Vorlage", "Wochentag", "Soll-Touren", "Soll-Spediteurtouren", "Soll-Eigenanteil %", "Soll-Kosten €"]];
+    M.std.keys.concat(["avg"]).forEach(function(k){
+      var S = k === "avg" ? M.std.avg : M.std.v[k];
+      for(var w=0; w<7; w++) vs.push([S.label, SPED_OV_WD[w], S.touren ? Math.round(S.touren[w] * 10) / 10 : "", Math.round(S.fremd[w] * 10) / 10,
+                                     (S.touren && S.touren[w]) ? Math.round((1 - S.fremd[w] / S.touren[w]) * 1000) / 10 : "", r0(S.kosten[w])]);
+    });
+    var wsVs = XLSX.utils.aoa_to_sheet(vs); wsVs['!cols'] = [{wch:16}, {wch:12}, {wch:12}, {wch:20}, {wch:17}, {wch:14}];
+    XLSX.utils.book_append_sheet(wb, wsVs, "Soll_Vorlagen");
+  }
+  var tp = [["Spedition", "Regel", "Bedingung", "Preis €", "Fahrten", "Kosten €", "Beispiele (Tour: Anzahl)"]];
+  M.pruef.forEach(function(P){
+    spedFpPruefZeilen(P, M).forEach(function(Z){
+      tp.push([P.key, Z.label, Z.bed, Z.preisTxt, Z.n, r0(Z.kosten), Z.bspTxt]);
+    });
+  });
+  var wsP = XLSX.utils.aoa_to_sheet(tp);
+  wsP['!cols'] = [{wch:20}, {wch:34}, {wch:40}, {wch:12}, {wch:8}, {wch:11}, {wch:60}];
+  XLSX.utils.book_append_sheet(wb, wsP, "Tarif_Pruefung");
+  if(M.std.has){
+    var ez = [["Datum", "Wochentag", "Abfahrt", "Linie", "Spedition", "Untergruppe", "Tour", "z.b.v.", "Preis €"]];
+    spedFpExtraListe(M).forEach(function(e){ ez.push([spedOvDateDe(e.iso), SPED_OV_WD[e.wd], e.r.zeit || "", String(e.r.kf || e.r.nr), spedOvGroup(e.r), e.r.name || "", e.r.tour || "", e.zbv ? "ja" : "", Math.round(e.v * 100) / 100]); });
+    var wsE = XLSX.utils.aoa_to_sheet(ez); wsE['!cols'] = [{wch:11}, {wch:11}, {wch:8}, {wch:7}, {wch:18}, {wch:24}, {wch:20}, {wch:7}, {wch:10}];
+    XLSX.utils.book_append_sheet(wb, wsE, "Zusatzfahrten");
+  }
+  var wsD = XLSX.utils.aoa_to_sheet([["Kennzahl", "Berechnung"]].concat(SPED_FP_DEFS));
+  wsD['!cols'] = [{wch:20}, {wch:140}];
+  XLSX.utils.book_append_sheet(wb, wsD, "Berechnung");
+  XLSX.writeFile(wb, "Dashboard_FP_Soll_Ist_" + (M.Y || "alle") + "_" + (M.MO === "all" ? "Jahr" : M.MO) + ".xlsx");
+}
+
+// ── Rendering Soll / Ist ────────────────────────────────────────────────────
+function spedFpRender(){
+  var content = document.getElementById("sped-content");
+  if(!content) return;
+  spedOvTipInit();
+  var st = document.getElementById("sped-stats"); if(st) st.innerHTML = "";
+  var tageAll = (SPED_DATA && Array.isArray(SPED_DATA.tage)) ? SPED_DATA.tage : [];
+  if(!spedOvRowsBase().length && !tageAll.length){
+    content.innerHTML = '<div style="max-width:1500px;margin:0 auto;">' + spedFpTabsHtml()
+      + '<div style="color:#94a3b8;padding:70px;text-align:center;font-size:14px;">Keine Daten – bitte Touren-Dateien (Excel) in Streamlit hochladen.</div></div>';
+    return;
+  }
+  var M = spedFpCompute();
+  SPED_FP_MODEL = M;
+  var period = M.MO === "all" ? "Jahr " + M.Y : spedOvMonthName(M.MO) + " " + M.Y;
+  var head = '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:4px;">'
+    + '<div><div style="font-size:15px;font-weight:950;color:#0f172a;">Soll / Ist Fuhrpark · ' + spedOvEsc(period) + '</div>'
+    + '<div style="font-size:10px;color:#64748b;margin-top:2px;">Kosten Spediteure · Tourenplanung · Eigenanteil · Krankenquote – folgt Jahr und Monat, gilt für den gesamten Fuhrpark.</div></div>'
+    + '<div style="display:flex;gap:7px;flex-wrap:wrap;">'
+    + spedFpBtn("⚙ Vorgaben", "spedFpToggleEditor()", SPED_FP_EDIT ? "amber" : "blue", "Soll-Werte, Tarife, Budget, Toleranzen")
+    + spedFpBtn("💾 Excel", "spedFpExportExcel()", "green", "Soll/Ist-Tabelle, Kosten je Spedition, Vorgaben und Berechnung als Excel")
+    + '</div></div>';
+  var notes = '';
+  if(!M.hasTage) notes += '<div style="padding:8px 12px;border:1px solid #fcd34d;background:#fffbeb;color:#92400e;border-radius:9px;font-size:11px;font-weight:800;margin-bottom:10px;">Die Tagesauswertung (eigene Touren, Krankmeldungen) fehlt in diesen Daten. Touren-Dateien in Streamlit erneut hochladen und das Dashboard neu erzeugen – bis dahin nur Spediteurkosten.</div>';
+  if(SPED_OV_FILTER !== "all") notes += '<div style="font-size:10px;color:#64748b;margin-bottom:8px;">Hinweis: Der Speditionsfilter „' + spedOvEsc(SPED_OV_FILTER) + '“ wirkt nur in der Fahrten-Statistik.</div>';
+  content.innerHTML = '<div style="max-width:1500px;margin:0 auto;">' + spedFpTabsHtml() + head
+    + spedFpQuelleHtml(M)
+    + (SPED_FP_EDIT ? spedFpEditorHtml(M) : '')
+    + notes
+    + (M.days.length ? spedFpCardsHtml(M) + spedFpKrankHtml(M)
+        + spedOvSection("Entwicklung", "Säule = Ist, Linie = Soll")
+        + spedFpChartsHtml(M)
+        + spedOvSection("Soll / Ist im Detail", M.MO === "all" ? "je Monat · Monat anklicken für die Tage" : "je Tag")
+        + spedFpTableHtml(M)
+        + spedOvSection("Kosten je Spedition", "Tarif × Fahrten im Zeitraum")
+        + spedFpSpedTableHtml(M)
+        + (M.std.has ? spedOvSection("Zusatzfahrten wegen Personalmangel", "Spediteurfahrten über den Standard hinaus") + spedFpExtraHtml(M) : '')
+        + spedFpPruefHtml(M)
+        + spedFpStdHtml(M)
+        + spedFpDefsHtml(M)
+      : '<div style="' + SPED_OV_CARD + 'color:#94a3b8;padding:40px;text-align:center;font-size:13px;">Keine Daten im gewählten Zeitraum.</div>')
+    + '</div>';
+}
+
+function spedRender(){
+  if(SPED_OV_VIEW === "stat") return spedRenderStat();
+  return spedFpRender();
+}
 """
 
 
@@ -47954,7 +50139,8 @@ with tab_extra:
             _spd = json.loads(st.session_state.get("spediteure_json", '{"katalog":[],"fahrten":[]}'))
             return (f"{len(ups)} Dateien: Sonder {_zns}, Fuengers {_znf}, "
                     f"Drittkunden {len(_dkd)}, Fahrer {_fan}, "
-                    f"Spediteure {len(_spd.get('katalog', []))} ({len(_spd.get('fahrten', []))} Fahrten)")
+                    f"Spediteure {len(_spd.get('katalog', []))} ({len(_spd.get('fahrten', []))} Fahrten), "
+                    f"Soll/Ist {len(_spd.get('tage', []))} Tage")
         _extra_multi_upload(
             "Touren-Dateien (Zulagen, Drittkunden, Fahrerauswertung)",
             ["xlsx"], "touren",
@@ -47965,6 +50151,24 @@ with tab_extra:
                 "spediteure_json":  parse_spediteure_excel,
             },
             summary_fn=_touren_summary,
+        )
+
+        def _spedsoll_summary(j):
+            d = json.loads(j or "{}")
+            def _f(v, suf):
+                return "–" if v is None else f"{v:g} {suf}"
+            wd = sum(1 for v in d.get("touren_soll_wd", []) if v is not None)
+            return (f"Vorgaben: Eigenanteil {_f(d.get('eigenanteil_soll'), '%')}, "
+                    f"Standardwoche {len(d.get('standardwoche', []))} Fahrten, "
+                    f"Krankenquote {_f(d.get('krankenquote_soll'), '%')}, "
+                    f"{len(d.get('tarifregeln', []))} Tarifregeln, {len(d.get('budget', {}))} Budgetmonate, "
+                    f"Soll-Touren {wd}/7 Wochentage")
+        _extra_single_upload(
+            "Spediteure Soll-Vorgaben (Excel, optional – Vorlage im Dashboard unter Spediteure › Soll/Ist › Vorgaben)",
+            ["xlsx"], "spedsoll",
+            parse_sped_vorgaben_excel,
+            summary_fn=_spedsoll_summary,
+            spinner_text="Verarbeite Soll-Vorgaben ...",
         )
 
         def _fw_summary(ups):
@@ -48022,10 +50226,18 @@ with tab_extra:
         def _tz_summary(ups):
             page = st.session_state.get("tourzuordnung_html", "") or ""
             drivers = page.count(' driver-card"')
-            return f"{len(ups)} Wochen-Dateien, {drivers} Fahrer zugeordnet"
+            try:
+                _sw = json.loads(st.session_state.get("sped_sw_json", "") or "{}")
+            except Exception:
+                _sw = {}
+            _wo = _sw.get("wochen", {}) if isinstance(_sw, dict) else {}
+            _swt = (f", Spediteur-Standardwochen {', '.join('Tour ' + k for k in sorted(_wo))}"
+                    + (f" (Hinweis: {'; '.join(_sw.get('fehler', []))})" if _sw.get("fehler") else "")) if _wo else ""
+            return f"{len(ups)} Wochen-Dateien, {drivers} Fahrer zugeordnet{_swt}"
         _extra_multi_upload(
-            "Tourzuordnung (4 Excel-Wochen: Vorlage Tour 1-4.xlsx, Blatt „Druck Fahrer“)", ["xlsx"], "tourzuordnung",
-            {"tourzuordnung_html": parse_tourzuordnung_excel},
+            "Tourzuordnung + Spediteur-Standardwochen (4 Excel-Wochen: Vorlage Tour 1-4.xlsx, Blätter „Druck Fahrer“ und „Touren“)", ["xlsx"], "tourzuordnung",
+            {"tourzuordnung_html": parse_tourzuordnung_excel,
+             "sped_sw_json": parse_sped_standardwochen_excel},
             summary_fn=_tz_summary,
             spinner_text="Verarbeite Tourzuordnung ...",
         )
@@ -48207,7 +50419,11 @@ with tab_dl:
                         spesen_json=st.session_state.get("spesen_json", '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}'),
                         grosskunden_json=st.session_state.get("grosskunden_json", "[]"),
                         timerec_json=st.session_state.get("timerec_json", "{}"),
-                        spediteure_json=st.session_state.get("spediteure_json", '{"katalog":[],"fahrten":[]}'),
+                        spediteure_json=_sped_merge_vorgaben(
+                            st.session_state.get("spediteure_json", '{"katalog":[],"fahrten":[]}'),
+                            st.session_state.get("spedsoll_json", ""),
+                            st.session_state.get("sped_sw_json", ""),
+                        ),
                         fahrerbewertung_json=st.session_state.get("fahrerbewertung_json", '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}'),
                         versp_abfahrt_json="{}",
                         last_updated=generated_at.strftime("Stand: %d.%m.%Y %H:%M"),
