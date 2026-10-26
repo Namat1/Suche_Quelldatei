@@ -33613,7 +33613,9 @@ SPED_FP_VORGABEN = {
     "tarife": {},                   # Standardtarif je Spedition/Linie, wenn keine Tarifregel greift: {"Kudex": 650}
     "toleranz": {"touren_pct": 3.0, "eigen_pp": 3.0, "kq_pp": 1.5, "kosten_pct": 5.0},
     "tarifregeln": [],              # wird unten mit SPED_FP_TARIFREGELN gefüllt
-    "rotation_start": "",           # Sonntag, an dem Vorlage Tour 1 gilt (JJJJ-MM-TT); leer = automatisch erkennen
+    # Sonntag, an dem Vorlage Tour 1 gilt (JJJJ-MM-TT); leer = je Woche automatisch erkennen.
+    # Abgleich KW25–44/2026: lückenloser 4-Wochen-Zyklus, Tour 1 ab So 21.06.2026 (KW26).
+    "rotation_start": "2026-06-21",
 }
 
 
@@ -36437,8 +36439,9 @@ function spedFpAgg(list, M){
   a.fremdSollV = a.fremdSollN ? a.fremdSoll : null;
   a.kostenSollV = a.kostenSollN ? a.kostenSoll : null;
   a.kostenSollSrc = !a.kostenSollN ? "" : (a.budgetN === a.kostenSollN ? "budget" : (a.stdN === a.kostenSollN ? "standardwoche" : ((a.budgetN || a.stdN) ? "gemischt" : "abgeleitet")));
-  a.ea = (M.hasTage && a.besetzt) ? a.eigen / a.besetzt : null;
-  a.eaBer = (M.hasTage && a.besetzt) ? (a.eigen + a.krankExt) / a.besetzt : null;
+  // wie im Soll: Touren ohne eingetragenen Fahrer zählen als eigene
+  a.ea = (M.hasTage && a.ist) ? (a.eigen + a.offen) / a.ist : null;
+  a.eaBer = (M.hasTage && a.ist) ? (a.eigen + a.offen + a.krankExt) / a.ist : null;
   a.kq = a.pers ? a.krank / a.pers : null;
   a.eaSollSrc = "";
   if(V.eigenanteil_soll != null){ a.eaSoll = V.eigenanteil_soll / 100; a.eaSollSrc = "vorgabe"; }
@@ -36496,6 +36499,7 @@ function spedFpCompute(){
     x.krank = +t.krank || 0; x.urlaub = +t.urlaub || 0; x.fahrer = +t.fahrer || 0;
   });
   var bySped = {}, pruef = {};
+  M.ohneListe = [];
   var fahrY = fahrAll.filter(function(r){ return inYear(r.iso); });
   var PR = spedFpPreise(fahrY, V);
   M.regeln = PR.regeln;
@@ -36517,6 +36521,7 @@ function spedFpCompute(){
     if(tf.regel < 0){
       var b = spedFpTourCode(r.tour) || spedFpTourCode(r.tnr) || String(r.tour || r.txt || "ohne Tour");
       Z.bsp[b] = (Z.bsp[b] || 0) + 1;
+      if(tf.src === "fehlt") M.ohneListe.push(r);
     }
   });
   M.pruef = Object.keys(pruef).map(function(k){ return pruef[k]; }).sort(function(a, b){ return b.kosten - a.kosten || b.n - a.n; });
@@ -36759,14 +36764,14 @@ function spedFpCardsHtml(M){
     + (T.fremdSollV != null ? ' (Soll ' + n(Math.round(T.fremdSollV)) + ')' : '')
     + ' · Ø ' + spedFpEur(T.extern ? T.kosten / T.extern : M.tarifAvg) + ' je Fahrt'
     + (M.std.has && T.krankKosten >= 1 ? '<br>davon Zusatzfahrten (Personalmangel): <b style="color:' + SPED_FP_C.bad + ';">' + spedFpEur(T.krankKosten) + '</b>' : '')
-    + (T.ohneTarif ? '<br><span style="color:#dc2626;font-weight:850;">⚠ ' + n(T.ohneTarif) + ' Fahrten ohne Tarif (0 €) – Tarife unter ⚙ Vorgaben pflegen</span>' : '');
+    + (T.ohneTarif ? '<br><a href="#" onclick="spedFpZeigeOhne();return false;" style="color:#dc2626;font-weight:850;text-decoration:underline;">⚠ ' + n(T.ohneTarif) + ' Fahrten ohne Tarif (0 €) – anzeigen</a>' : '');
   var tAuto = {vorlagen:"Vorlagen Tour " + M.std.keys[0] + (M.std.keys.length > 1 ? "–" + M.std.keys[M.std.keys.length - 1] : ""), auto:"Regelplan automatisch", vorgabe:"Vorgabe je Wochentag",
                "vorgabe+vorlagen":"Vorgabe + Vorlagen", "vorgabe+auto":"Vorgabe + Regelplan"}[M.sollTSrc] || "";
   var tNote = !M.hasTage
     ? '<span style="color:#b45309;font-weight:850;">Touren-Dateien neu hochladen – Tagesauswertung fehlt.</span>'
     : '<b style="color:#0f172a;">' + n(T.betrieb) + '</b> Betriebstage · Ø ' + spedOvDec(T.betrieb ? T.ist / T.betrieb : 0, 1) + ' Touren/Tag'
       + (T.offen ? ' · <span style="color:#b45309;font-weight:850;">' + n(T.offen) + ' unbesetzt</span>' : '');
-  var eNote = '<b style="color:' + SPED_FP_C.eigen + ';">' + n(T.eigen) + '</b> eigen · <b style="color:' + SPED_FP_C.sped + ';">' + n(T.sped) + '</b> Spedition'
+  var eNote = '<b style="color:' + SPED_FP_C.eigen + ';">' + n(T.eigen) + '</b> eigen' + (T.offen ? ' + ' + n(T.offen) + ' ohne Fahrer' : '') + ' · <b style="color:' + SPED_FP_C.sped + ';">' + n(T.sped) + '</b> Spedition'
     + (T.fremd ? ' · <b style="color:#a16207;">' + n(T.fremd) + '</b> sonst. extern' : '')
     + (T.eaBer != null && T.krankExt >= 0.5 ? '<br>' + (M.std.has ? 'ohne Zusatzfahrten' : 'ohne Mehr-Krankheit') + ': <b style="color:#0f172a;">' + spedFpPct(T.eaBer) + '</b>' : '');
   var kqNote = '<b style="color:#0f172a;">' + n(T.krank) + '</b> Krankheitstage von ' + n(T.pers) + ' Personentagen'
@@ -36873,7 +36878,7 @@ function spedFpChartsHtml(M){
     var c = base(r);
     c.segs = [{v:r.ea != null ? r.ea * 100 : 0, color:SPED_FP_BAR[r.amp.eigen]}]; c.marker = r.eaSoll != null ? r.eaSoll * 100 : null;
     c.ttv = "Eigenanteil " + spedFpPct(r.ea) + (r.eaSoll != null ? " · Soll " + spedFpPct(r.eaSoll) : "");
-    c.tts = spedOvNum(r.eigen) + " eigen von " + spedOvNum(r.besetzt) + " besetzten Touren" + (r.krankExt >= 0.5 ? (M.std.has ? " · ohne Zusatzfahrten " : " · ohne Mehr-Krankheit ") + spedFpPct(r.eaBer) : "");
+    c.tts = spedOvNum(r.eigen + r.offen) + " eigen" + (r.offen ? " (davon " + r.offen + " ohne Fahrer)" : "") + " von " + spedOvNum(r.ist) + " Touren" + (r.krankExt >= 0.5 ? (M.std.has ? " · ohne Zusatzfahrten " : " · ohne Mehr-Krankheit ") + spedFpPct(r.eaBer) : "");
     return c;
   });
   var kqMax = 0;
@@ -36902,7 +36907,7 @@ function spedFpChartsHtml(M){
            (M.total.kosten || M.total.kostenSollV) ? spedFpStack(cK, {height:150, fmt:spedFpEurShort})
              : '<div style="padding:40px 10px;text-align:center;color:#94a3b8;font-size:12px;">Keine Tarife hinterlegt – unter ⚙ Vorgaben je Spedition € pro Fahrt eintragen.</div>')
     + '</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">'
-    + card("Eigenanteil " + per, "eigene Touren ÷ besetzte Touren", spedFpLegend(ampLeg), spedFpStack(cE, {height:130, fmt:pct, min:eaMin, max:100, step:eaStep}))
+    + card("Eigenanteil " + per, "eigene Touren ÷ alle Touren", spedFpLegend(ampLeg), spedFpStack(cE, {height:130, fmt:pct, min:eaMin, max:100, step:eaStep}))
     + card("Krankenquote " + per, "Krankheitstage ÷ Personentage (eigene Fahrer)", spedFpLegend(ampLeg), spedFpStack(cQ, {height:130, fmt:pct}))
     + '</div>';
 }
@@ -37070,6 +37075,32 @@ function spedFpPruefZeilen(P, M){
             bspTxt:bsp.slice(0, 8).map(function(b){ return b + ": " + Z.bsp[b]; }).join(", ") + (bsp.length > 8 ? " …" : "")};
   });
 }
+function spedFpZeigeOhne(){
+  var el = document.getElementById("sped-fp-ohne");
+  if(!el) return;
+  var d = el.closest("details"); if(d) d.open = true;
+  el.scrollIntoView({behavior:"smooth", block:"start"});
+}
+function spedFpOhneHtml(M){
+  var L = (M.ohneListe || []).slice().sort(function(a, b){ return String(a.iso).localeCompare(String(b.iso)) || String(a.zeit).localeCompare(String(b.zeit)); });
+  if(!L.length) return '';
+  var td = 'padding:5px 8px;border-bottom:1px solid #fde2e2;white-space:nowrap;';
+  var th = 'padding:5px 8px;text-align:left;font-size:9px;color:#991b1b;text-transform:uppercase;letter-spacing:.3px;';
+  return '<div id="sped-fp-ohne" style="margin:8px 0 10px;padding:8px 10px;border:1px solid #fecaca;border-radius:9px;background:#fef2f2;">'
+    + '<div style="font-size:11px;font-weight:950;color:#991b1b;margin-bottom:5px;">Fahrten ohne Tarif (' + L.length + ') – keine Tarifregel passt, kein Standardtarif → 0 €</div>'
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:760px;">'
+    + '<thead><tr><th style="' + th + '">Tag</th><th style="' + th + '">Abfahrt</th><th style="' + th + '">Linie</th><th style="' + th + '">Tour (Spalte P)</th><th style="' + th + '">Tour (Spalte A)</th><th style="' + th + '">Besonderheiten</th><th style="' + th + '">LKW</th></tr></thead><tbody>'
+    + L.map(function(r){
+        return '<tr><td style="' + td + '">' + spedOvEsc(SPED_OV_WD_SHORT[spedOvWdFromIso(r.iso)] + " " + spedOvDateDe(r.iso)) + '</td>'
+          + '<td style="' + td + '">' + spedOvEsc(r.zeit || "–") + '</td>'
+          + '<td style="' + td + '">' + spedOvDot(spedOvGroup(r), 7) + '<b>' + spedOvEsc(String(r.kf || r.nr)) + '</b> ' + spedOvEsc(r.name || "") + '</td>'
+          + '<td style="' + td + 'font-weight:900;">' + spedOvEsc(r.tour || "–") + '</td>'
+          + '<td style="' + td + '">' + spedOvEsc(r.tnr || "–") + '</td>'
+          + '<td style="' + td + 'white-space:normal;color:#64748b;">' + spedOvEsc(r.txt || "") + '</td>'
+          + '<td style="' + td + '">' + spedOvEsc(r.lkw && r.lkw !== "0" ? r.lkw : "–") + '</td></tr>';
+      }).join('') + '</tbody></table></div>'
+    + '<div style="font-size:10px;color:#991b1b;margin-top:5px;">Abhilfe: unter ⚙ Vorgaben eine Tarifregel für die Tour ergänzen oder einen Standardtarif für die Spedition eintragen.</div></div>';
+}
 function spedFpPruefHtml(M){
   if(!M.pruef || !M.pruef.length) return '';
   var offen = 0, std = 0;
@@ -37092,6 +37123,7 @@ function spedFpPruefHtml(M){
     + (std ? ' · <span style="color:#b45309;font-weight:900;">' + spedOvNum(std) + ' über Standardtarif</span>' : '');
   return '<details' + (offen ? ' open' : '') + ' style="' + SPED_OV_CARD + 'padding:10px 14px;margin-top:10px;">'
     + '<summary style="cursor:pointer;font-size:11px;font-weight:950;color:#334155;">Tarif-Prüfung: welche Regel greift · ' + sum + '</summary>'
+    + spedFpOhneHtml(M)
     + '<div style="font-size:10px;color:#94a3b8;margin:6px 0 4px;">Beispiele = Tournummern der Fahrten ohne passende Regel. Regeln unter ⚙ Vorgaben anpassen.</div>'
     + '<div style="overflow-x:auto;"><table class="sped-ov-tbl" style="width:100%;border-collapse:collapse;font-size:11px;min-width:900px;">'
     + '<thead><tr style="color:#64748b;text-transform:uppercase;letter-spacing:.3px;font-size:9px;"><th style="padding:6px 9px;text-align:left;">Regel</th><th style="padding:6px 9px;text-align:left;">Bedingung</th><th style="padding:6px 9px;text-align:right;">Preis</th><th style="padding:6px 9px;text-align:right;">Fahrten</th><th style="padding:6px 9px;text-align:right;">Kosten</th><th style="padding:6px 9px;text-align:left;">Beispiele</th></tr></thead>'
@@ -37186,10 +37218,10 @@ function spedFpStdHtml(M){
 
 var SPED_FP_DEFS = [
   ["Tourenplanung", "Ist = Touren im Tourenplan je Betriebstag (eigen + Spedition + sonstige Externe + unbesetzt). Soll = Touren der Vorlage Tour 1–4, die in der Woche gilt (Rotation per Startdatum oder automatisch über die Spediteurfahrten erkannt); ohne Vorlagen Vorgabe je Wochentag bzw. Regelplan (Median). Hof, Werkstatt, Verladung, Schule und z.b.v. sind keine Touren. Tage ohne Tourenplan (z. B. Feiertage) zählen nicht."],
-  ["Eigenanteil", "Eigene Touren ÷ besetzte Touren (eigen + Spedition + sonstige Externe). Soll = Vorgabe in %, sonst aus der Vorlage: 1 − Spediteurtouren ÷ Touren (unbesetzte Vorlagen-Touren zählen als eigen)."],
+  ["Eigenanteil", "Eigene Touren ÷ alle Touren (eigen + Spedition + sonstige Externe + ohne Fahrer). Touren ohne eingetragenen Fahrer zählen in Ist und Soll als eigene. Soll = Vorgabe in %, sonst aus der Vorlage: 1 − Spediteurtouren ÷ Touren."],
   ["Krankenquote", "Krankheitstage ÷ Personentage der eigenen Fahrer (eingesetzt + krank) aus den Einträgen „Krank“ im Tourenplan, nur an Betriebstagen."],
   ["Kosten Spediteure", "Spediteurfahrten × Tarif: erste passende Tarifregel der Spedition (Tour, Text, Linie, Schicht, Edeka-LKW), sonst Standardtarif der Spedition bzw. allgemeiner Standardtarif; sonstige Externe × allgemeiner Standardtarif. Soll = Monatsbudget (nach Standardwoche auf die Tage verteilt, laufender Monat anteilig); ohne Budget = Standardwoche × Tarifregeln je Betriebstag; ohne beides = Soll-Touren × (1 − Eigenanteil-Soll) × Ø-Tarif. z.b.v.-Fahrten der Spediteure kosten, zählen aber nicht als Tour."],
-  ["Zusatzfahrten (Personalmangel)", "Je Tag werden die Spediteurfahrten aus dem Tourenplan mit dem Standard verglichen (gleiche Linie + Tour, dann gleiche Linie, dann gleiche Spedition). Danach werden Reste innerhalb derselben Woche abgeglichen (verschobene Fahrten, z. B. Feiertag); auch eine andere Spedition auf derselben Tour zählt als Standard. Jede Fahrt darüber hinaus ist eine Zusatzfahrt wegen Personalmangel, mit ihrem Tarif als Mehrkosten. Abweichung Kosten = Zusatzfahrten − nicht gefahrene Standardfahrten ± Preisunterschiede. Eigenanteil ohne Zusatzfahrten = (eigen + Zusatzfahrten) ÷ besetzte Touren. Ohne Standardwochen: Schätzung über Krankheitstage über der Soll-Quote."],
+  ["Zusatzfahrten (Personalmangel)", "Je Tag werden die Spediteurfahrten aus dem Tourenplan mit dem Standard verglichen (gleiche Linie + Tour, dann gleiche Linie, dann gleiche Spedition). Danach werden Reste innerhalb derselben Woche abgeglichen (verschobene Fahrten, z. B. Feiertag); auch eine andere Spedition auf derselben Tour zählt als Standard. Jede Fahrt darüber hinaus ist eine Zusatzfahrt wegen Personalmangel, mit ihrem Tarif als Mehrkosten. Abweichung Kosten = Zusatzfahrten − nicht gefahrene Standardfahrten ± Preisunterschiede. Eigenanteil ohne Zusatzfahrten = (eigen + ohne Fahrer + Zusatzfahrten) ÷ alle Touren. Ohne Standardwochen: Schätzung über Krankheitstage über der Soll-Quote."],
   ["Grundsatz", "Ist kommt immer aus den hochgeladenen Wochen-Tourenplänen. Soll = Standard: Vorlage Tour 1–4 der Woche (plus ggf. Ergänzungen aus dem Vorgaben-Excel). Jede Spediteurfahrt darüber hinaus ist eine Zusatzfahrt wegen Personalmangel."],
   ["Ampel", "Grün = im Ziel, Gelb = innerhalb Toleranz, Rot = außerhalb. Toleranzen unter ⚙ Vorgaben."]
 ];
@@ -37476,6 +37508,10 @@ function spedFpExportExcel(){
       tp.push([P.key, Z.label, Z.bed, Z.preisTxt, Z.n, r0(Z.kosten), Z.bspTxt]);
     });
   });
+  if((M.ohneListe || []).length){
+    tp.push([]); tp.push(["Fahrten ohne Tarif", "Datum", "Abfahrt", "Linie", "Tour (P)", "Tour (A)", "Besonderheiten"]);
+    M.ohneListe.forEach(function(r){ tp.push([spedOvGroup(r), spedOvDateDe(r.iso), r.zeit || "", String(r.kf || r.nr) + " " + (r.name || ""), r.tour || "", r.tnr || "", r.txt || ""]); });
+  }
   var wsP = XLSX.utils.aoa_to_sheet(tp);
   wsP['!cols'] = [{wch:20}, {wch:34}, {wch:40}, {wch:12}, {wch:8}, {wch:11}, {wch:60}];
   XLSX.utils.book_append_sheet(wb, wsP, "Tarif_Pruefung");
