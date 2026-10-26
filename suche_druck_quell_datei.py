@@ -36216,26 +36216,73 @@ function spedFpStdPreis(rows, V){
 function spedFpCode(t){
   return spedFpTourCode(t) || String(t || "").toLowerCase().replace(/[^a-z0-9äöüß]+/g, "");
 }
-// Ist-Fahrten eines Tages gegen den Standard abgleichen: gleiche Linie+Tour, dann gleiche
-// Linie, dann gleiche Spedition. Was übrig bleibt, ist Zusatzfahrt (Personalmangel).
-function spedFpAbgleich(trips, S, wd){
+// Standardfahrten einer Vorlage je Wochentag (mit Preis)
+function spedFpStdTag(S, wd){
   if(!S.byWd){
     S.byWd = [[],[],[],[],[],[],[]];
     S.rows.forEach(function(r, i){
       S.byWd[r.wdi].push({line:String(r.kf || r.nr || ""), grp:r.gruppe, code:spedFpCode(r.tour), v:S.preise[i].v, zbv:r.zbv ? 1 : 0, r:r});
     });
   }
-  var std = S.byWd[wd].map(function(s){ return {s:s, used:false}; }), act = trips.map(function(t){ return {t:t, used:false}; });
-  [function(a, b){ return a.line === b.line && a.code === b.code; },
-   function(a, b){ return a.line === b.line; },
-   function(a, b){ return a.grp === b.grp; }].forEach(function(eq){
-    act.forEach(function(a){
+  return S.byWd[wd];
+}
+// Abgleich Ist ↔ Standard. Reihenfolge: gleiche Linie+Tour, gleiche Linie, gleiche Tour
+// (andere Spedition übernimmt), gleiche Spedition. Liefert Paare und Reste.
+var SPED_FP_EQ = [
+  function(a, b){ return a.line === b.line && a.code === b.code; },
+  function(a, b){ return a.line === b.line; },
+  function(a, b){ return !!a.code && a.code === b.code; },
+  function(a, b){ return a.grp === b.grp; }
+];
+function spedFpMatch(acts, stds){
+  var A = acts.map(function(a){ return {o:a, used:false}; }), S = stds.map(function(x){ return {o:x, used:false}; }), pairs = [];
+  SPED_FP_EQ.forEach(function(eq){
+    A.forEach(function(a){
       if(a.used) return;
-      for(var j=0;j<std.length;j++){ if(!std[j].used && eq(a.t, std[j].s)){ std[j].used = true; a.used = true; return; } }
+      for(var j=0;j<S.length;j++){ if(!S[j].used && eq(a.o, S[j].o)){ S[j].used = true; a.used = true; pairs.push([a.o, S[j].o]); return; } }
     });
   });
-  return {extra:act.filter(function(a){ return !a.used; }).map(function(a){ return a.t; }),
-          ausfall:std.filter(function(s){ return !s.used; }).map(function(s){ return s.s; })};
+  return {pairs:pairs, restA:A.filter(function(a){ return !a.used; }).map(function(a){ return a.o; }),
+          restS:S.filter(function(x){ return !x.used; }).map(function(x){ return x.o; })};
+}
+// Wochenweiser Abgleich: erst je Tag, dann Reste innerhalb der Woche (verschobene Fahrten,
+// z.B. Feiertag → Vor-/Folgetag). Tage ohne Tourenplan innerhalb des Datenzeitraums geben
+// ihre Standardfahrten für Verschiebungen frei; verschobene Fahrten bringen ihr Soll mit.
+function spedFpWochenAbgleich(M, list, minIso, maxIso){
+  var weeks = {};
+  list.forEach(function(x){ (weeks[spedFpWeekSun(x.iso)] || (weeks[spedFpWeekSun(x.iso)] = {})).byIso = null; });
+  list.forEach(function(x){ var W = weeks[spedFpWeekSun(x.iso)]; (W.days || (W.days = {}))[x.iso] = x; });
+  Object.keys(weeks).forEach(function(sun){
+    var W = weeks[sun], leftA = [], leftS = [];
+    for(var k=0;k<7;k++){
+      var iso = spedFpIsoAdd(sun, k), x = W.days[iso], wd = spedOvWdFromIso(iso);
+      var SM = spedFpVarMatch(M, iso), std = SM ? spedFpStdTag(SM, wd) : [];
+      if(!x){
+        if(iso > minIso && iso < maxIso) std.forEach(function(st){ leftS.push({line:st.line, grp:st.grp, code:st.code, st:st, x:null, iso:iso}); });
+        continue;
+      }
+      x.extra = []; x.ausfall = []; x.verschN = 0; x.stdShiftK = 0; x.stdShiftN = 0;
+      var r = spedFpMatch(x.trips, std);
+      r.restA.forEach(function(t){ leftA.push({line:t.line, grp:t.grp, code:t.code, t:t, x:x}); });
+      r.restS.forEach(function(st){ leftS.push({line:st.line, grp:st.grp, code:st.code, st:st, x:x, iso:iso}); });
+    }
+    var r2 = spedFpMatch(leftA, leftS);
+    r2.pairs.forEach(function(pr){
+      var a = pr[0], st = pr[1];
+      a.x.verschN++;
+      if(!st.x || !st.x.betrieb){ a.x.stdShiftK += st.st.v; if(!st.st.zbv) a.x.stdShiftN++; }
+    });
+    r2.restA.forEach(function(a){ a.x.extra.push(a.t); });
+    r2.restS.forEach(function(st){ if(st.x && st.x.betrieb) st.x.ausfall.push(st.st); });
+  });
+  list.forEach(function(x){
+    x.extra = x.extra || []; x.ausfall = x.ausfall || [];
+    x.extraZ = x.extra.length;
+    x.krankExt = x.extra.filter(function(t){ return !t.zbv; }).length;
+    x.krankKosten = x.extra.reduce(function(a, t){ return a + t.v; }, 0);
+    x.ausfallN = x.ausfall.length; x.ausfallK = x.ausfall.reduce(function(a, t){ return a + t.v; }, 0);
+    if(x.fremdSoll != null) x.fremdSoll += x.stdShiftN || 0;
+  });
 }
 function spedFpSig(wd, r){
   var code = spedFpTourCode(r.tour) || String(r.tour || "").toLowerCase().replace(/[^a-z0-9äöüß]+/g, "");
@@ -36373,13 +36420,13 @@ function spedFpAmpel(kind, ist, soll, tol){
 function spedFpAgg(list, M){
   var a = {n:list.length, eigen:0, sped:0, fremd:0, extern:0, offen:0, besetzt:0, ist:0, krank:0, urlaub:0,
            fahrer:0, pers:0, kosten:0, ohneTarif:0, soll:0, sollN:0, fremdSoll:0, fremdSollN:0,
-           kostenSoll:0, kostenSollN:0, budgetN:0, stdN:0, krankExc:0, krankExt:0, krankKosten:0, betrieb:0, extraZ:0, ausfallN:0, ausfallK:0};
+           kostenSoll:0, kostenSollN:0, budgetN:0, stdN:0, krankExc:0, krankExt:0, krankKosten:0, betrieb:0, extraZ:0, ausfallN:0, ausfallK:0, verschN:0};
   list.forEach(function(x){
     a.eigen += x.eigen; a.sped += x.sped; a.fremd += x.fremd; a.extern += x.extern; a.offen += x.offen;
     a.besetzt += x.besetzt; a.ist += x.ist; a.krank += x.krank; a.urlaub += x.urlaub;
     a.fahrer += x.fahrer; a.pers += x.pers; a.kosten += x.kosten; a.ohneTarif += x.ohneTarif;
     a.krankExc += x.krankExc; a.krankExt += x.krankExt; a.krankKosten += x.krankKosten;
-    a.extraZ += x.extraZ || 0; a.ausfallN += x.ausfallN || 0; a.ausfallK += x.ausfallK || 0;
+    a.extraZ += x.extraZ || 0; a.ausfallN += x.ausfallN || 0; a.ausfallK += x.ausfallK || 0; a.verschN += x.verschN || 0;
     if(x.betrieb) a.betrieb++;
     if(x.soll != null){ a.soll += x.soll; a.sollN++; }
     if(x.fremdSoll != null){ a.fremdSoll += x.fremdSoll; a.fremdSollN++; }
@@ -36499,14 +36546,7 @@ function spedFpCompute(){
     x.krankExc = kqS != null ? Math.max(0, x.krank - kqS * x.pers) : x.krank;
     x.tarifAvg = x.extern ? x.kosten / x.extern : 0;
     if(M.std.has){
-      // Soll = Standard; jede Spediteurfahrt darüber hinaus = Zusatzfahrt wegen Personalmangel
-      var SM = spedFpVarMatch(M, iso), AB = SM ? spedFpAbgleich(x.trips, SM, x.wd) : {extra:x.trips, ausfall:[]};
-      x.extra = AB.extra;
-      x.extraZ = AB.extra.length;
-      x.krankExt = AB.extra.filter(function(t){ return !t.zbv; }).length;
-      x.krankKosten = AB.extra.reduce(function(a, t){ return a + t.v; }, 0);
-      var ausf = x.betrieb ? AB.ausfall : [];
-      x.ausfallN = ausf.length; x.ausfallK = ausf.reduce(function(a, t){ return a + t.v; }, 0);
+      x.extra = []; x.ausfall = [];   // wochenweiser Abgleich folgt unten
     } else {
       x.extra = []; x.extraZ = 0; x.ausfallN = 0; x.ausfallK = 0;
       x.krankExt = Math.min(x.extern, x.krankExc);
@@ -36515,6 +36555,8 @@ function spedFpCompute(){
     yK += x.kosten; yF += x.extern;
     return x;
   });
+  // Soll = Standard; Spediteurfahrten darüber hinaus = Zusatzfahrten wegen Personalmangel
+  if(M.std.has && list.length) spedFpWochenAbgleich(M, list, list[0].iso, list[list.length - 1].iso);
   var tv = Object.keys(V.tarife).map(function(k){ return +V.tarife[k]; }).filter(function(v){ return v > 0; });
   M.tarifAvg = (yF && yK) ? yK / yF : (tv.length ? tv.reduce(function(a,b){ return a + b; }, 0) / tv.length : tStd);
 
@@ -36547,7 +36589,7 @@ function spedFpCompute(){
     if(!x.betrieb) return;
     if(useW && mi.budget != null && mi.weight > 0 && wOf(x.wd)){ x.kostenSoll = mi.budget * wOf(x.wd) / mi.weight; x.kostenSollSrc = "budget"; }
     else if(mi.budget != null && !useW && mi.perDay != null){ x.kostenSoll = mi.perDay; x.kostenSollSrc = "budget"; }
-    else if(mi.budget == null && x.stdKosten != null){ x.kostenSoll = x.stdKosten; x.kostenSollSrc = "standardwoche"; }
+    else if(mi.budget == null && x.stdKosten != null){ x.kostenSoll = x.stdKosten + (x.stdShiftK || 0); x.kostenSollSrc = "standardwoche"; }
     else if(x.fremdSoll != null && M.tarifAvg > 0){ x.kostenSoll = x.fremdSoll * M.tarifAvg; x.kostenSollSrc = "abgeleitet"; }
   });
 
@@ -36762,7 +36804,7 @@ function spedFpKrankHtml(M){
       + arrow + step("Mehrkosten", spedFpEur(T.krankKosten), T.kosten ? spedOvDec(T.krankKosten / T.kosten * 100, 1) + " % der Spediteurkosten" : "", SPED_FP_C.bad)
       + arrow + step("Eigenanteil ohne Zusatzfahrten", spedFpPct(T.eaBer), "Ist " + spedFpPct(T.ea) + (T.eaSoll != null ? " · Soll " + spedFpPct(T.eaSoll) : ""), SPED_FP_C.eigen)
       + '</div>'
-      + (T.ausfallN ? '<div style="font-size:10px;color:#64748b;margin-top:6px;">Gegenrechnung: ' + spedOvNum(T.ausfallN) + ' Standardfahrten der Spediteure sind nicht gefahren (−' + spedFpEur(T.ausfallK) + '), z. B. selbst gefahren oder Feiertag.</div>' : '')
+      + spedFpZerlegungHtml(M, T)
       + '</div>';
   }
   var excHint = V.krankenquote_soll != null ? "über Soll-Quote " + spedOvDec(V.krankenquote_soll, 1) + " %" : "ohne Soll-Quote: alle";
@@ -36775,6 +36817,29 @@ function spedFpKrankHtml(M){
     + arrow + step("Krankheitsbed. Kosten", "≈ " + spedFpEur(T.krankKosten), T.kosten ? spedOvDec(T.krankKosten / T.kosten * 100, 1) + " % der Spediteurkosten" : "")
     + arrow + step("Eigenanteil ohne Mehr-Krankheit", spedFpPct(T.eaBer), "Ist " + spedFpPct(T.ea) + (T.eaSoll != null ? " · Soll " + spedFpPct(T.eaSoll) : ""), SPED_FP_C.eigen)
     + '</div></div>';
+}
+
+// Abweichung Kosten = Zusatzfahrten − nicht gefahrene Standardfahrten ± Preisunterschiede
+function spedFpZerlegungHtml(M, T){
+  if(T.kostenSollV == null) return '';
+  var diff = T.kosten - T.kostenSollV, preis = diff - (T.krankKosten - T.ausfallK);
+  function chip(label, val, col, hint){
+    return '<div style="padding:6px 10px;border-radius:8px;background:#fff;border:1px solid #e2e8f0;min-width:150px;">'
+      + '<div style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.35px;">' + spedOvEsc(label) + '</div>'
+      + '<div style="font-size:14px;font-weight:950;color:' + col + ';font-variant-numeric:tabular-nums;">' + spedOvEsc(val) + '</div>'
+      + (hint ? '<div style="font-size:9px;color:#94a3b8;">' + spedOvEsc(hint) + '</div>' : '') + '</div>';
+  }
+  var op = '<div style="align-self:center;font-size:16px;font-weight:900;color:#94a3b8;">';
+  return '<div style="margin-top:10px;padding:9px 10px;border-radius:9px;background:#f8fafc;border:1px solid #e2e8f0;">'
+    + '<div style="font-size:10px;font-weight:900;color:#475569;margin-bottom:6px;">Warum weicht der Betrag so ab? Abweichung Kosten = Zusatzfahrten − nicht gefahrene Standardfahrten ± Preisunterschiede</div>'
+    + '<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:stretch;">'
+    + chip("Abweichung Kosten", spedFpEurSigned(diff), diff > 0 ? SPED_FP_C.bad : SPED_FP_C.ok, "Ist − Soll")
+    + op + '=</div>' + chip("Zusatzfahrten", spedFpEurSigned(T.krankKosten), SPED_FP_C.bad, spedOvNum(T.extraZ) + " Fahrten über Standard")
+    + op + '−</div>' + chip("Nicht gefahrene Standardfahrten", spedFpEur(T.ausfallK), SPED_FP_C.ok, spedOvNum(T.ausfallN) + " Fahrten, z. B. Feiertag oder selbst gefahren")
+    + op + '±</div>' + chip("Preisunterschiede", spedFpEurSigned(preis), "#475569", "gleiche Fahrt, anderer Tarif (z. B. Edeka-LKW, Tausch)")
+    + '</div>'
+    + (T.verschN ? '<div style="font-size:10px;color:#64748b;margin-top:6px;">' + spedOvNum(T.verschN) + ' Fahrten wurden innerhalb ihrer Woche verschoben (z. B. wegen Feiertag) und zählen nicht als Zusatzfahrt.</div>' : '')
+    + '</div>';
 }
 
 function spedFpChartsHtml(M){
@@ -36940,7 +37005,8 @@ function spedFpExtraListe(M){
 function spedFpExtraHtml(M){
   if(!M.std.has) return '';
   var L = spedFpExtraListe(M);
-  if(!L.length) return '<div style="' + SPED_OV_CARD + 'padding:12px 14px;font-size:11px;color:#15803d;font-weight:850;">Keine Zusatzfahrten im Zeitraum – alle Spediteurfahrten entsprechen dem Standard.</div>';
+  if(!L.length) return '<div style="' + SPED_OV_CARD + 'overflow:hidden;"><div style="padding:12px 14px;font-size:11px;color:#15803d;font-weight:850;">Keine Zusatzfahrten im Zeitraum – alle Spediteurfahrten entsprechen dem Standard.</div>'
+    + spedFpAusfallDetails(M, 'padding:6px 9px;border-bottom:1px solid #eef2f6;white-space:nowrap;', 'padding:6px 9px;text-align:left;font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.3px;') + '</div>';
   var by = {};
   L.forEach(function(e){ var g = spedOvGroup(e.r), G = by[g] || (by[g] = {key:g, n:0, k:0, lin:{}}); G.n++; G.k += e.v; var ln = String(e.r.kf || e.r.nr) + " " + (e.r.name || ""); G.lin[ln] = (G.lin[ln] || 0) + 1; });
   var groups = Object.keys(by).map(function(k){ return by[k]; }).sort(function(a, b){ return b.k - a.k; });
@@ -36968,7 +37034,26 @@ function spedFpExtraHtml(M){
     + '<details style="padding:8px 14px;border-top:1px solid #eef2f6;"><summary style="cursor:pointer;font-size:11px;font-weight:900;color:#334155;">Alle ' + spedOvNum(L.length) + ' Zusatzfahrten einzeln</summary>'
     + '<div style="overflow-x:auto;margin-top:6px;"><table class="sped-ov-tbl" style="width:100%;border-collapse:collapse;font-size:11px;min-width:640px;">'
     + '<thead><tr><th style="' + th + '">Tag</th><th style="' + th + '">Abfahrt</th><th style="' + th + '">Linie</th><th style="' + th + '">Tour</th><th style="' + th + 'text-align:right;">Preis</th></tr></thead>'
-    + '<tbody>' + det + '</tbody></table></div></details></div>';
+    + '<tbody>' + det + '</tbody></table></div></details>'
+    + spedFpAusfallDetails(M, td, th) + '</div>';
+}
+function spedFpAusfallDetails(M, td, th){
+  var L = [];
+  M.days.forEach(function(x){ (x.ausfall || []).forEach(function(st){ L.push({iso:x.iso, wd:x.wd, st:st}); }); });
+  if(!L.length) return '';
+  var sum = L.reduce(function(a, e){ return a + e.st.v; }, 0);
+  var rows = L.map(function(e){
+    var r = e.st.r;
+    return '<tr><td style="' + td + '">' + spedOvEsc(SPED_OV_WD_SHORT[e.wd] + " " + spedOvDateDe(e.iso)) + '</td><td style="' + td + '">' + spedOvEsc(r.zeit || "–") + '</td>'
+      + '<td style="' + td + '">' + spedOvDot(r.gruppe, 7) + spedOvEsc(String(r.kf || r.nr) + " " + (r.name || "")) + '</td>'
+      + '<td style="' + td + 'font-weight:900;">' + spedOvEsc(r.tour || "–") + '</td>'
+      + '<td style="' + td + 'text-align:right;color:' + SPED_FP_C.ok + ';">−' + spedFpEurP(e.st.v) + '</td></tr>';
+  }).join('');
+  return '<details style="padding:8px 14px;border-top:1px solid #eef2f6;"><summary style="cursor:pointer;font-size:11px;font-weight:900;color:#334155;">Nicht gefahrene Standardfahrten: ' + spedOvNum(L.length) + ' (−' + spedFpEur(sum) + ')</summary>'
+    + '<div style="font-size:10px;color:#94a3b8;margin:4px 0;">Steht in der Vorlage der Woche, im Tourenplan aber nicht bei einem Spediteur – z. B. Feiertag, selbst gefahren oder Tour entfallen.</div>'
+    + '<div style="overflow-x:auto;margin-top:4px;"><table class="sped-ov-tbl" style="width:100%;border-collapse:collapse;font-size:11px;min-width:640px;">'
+    + '<thead><tr><th style="' + th + '">Tag</th><th style="' + th + '">Abfahrt</th><th style="' + th + '">Linie</th><th style="' + th + '">Tour</th><th style="' + th + 'text-align:right;">Preis</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div></details>';
 }
 function spedFpPruefZeilen(P, M){
   var regeln = M.regeln || [];
@@ -37104,7 +37189,7 @@ var SPED_FP_DEFS = [
   ["Eigenanteil", "Eigene Touren ÷ besetzte Touren (eigen + Spedition + sonstige Externe). Soll = Vorgabe in %, sonst aus der Vorlage: 1 − Spediteurtouren ÷ Touren (unbesetzte Vorlagen-Touren zählen als eigen)."],
   ["Krankenquote", "Krankheitstage ÷ Personentage der eigenen Fahrer (eingesetzt + krank) aus den Einträgen „Krank“ im Tourenplan, nur an Betriebstagen."],
   ["Kosten Spediteure", "Spediteurfahrten × Tarif: erste passende Tarifregel der Spedition (Tour, Text, Linie, Schicht, Edeka-LKW), sonst Standardtarif der Spedition bzw. allgemeiner Standardtarif; sonstige Externe × allgemeiner Standardtarif. Soll = Monatsbudget (nach Standardwoche auf die Tage verteilt, laufender Monat anteilig); ohne Budget = Standardwoche × Tarifregeln je Betriebstag; ohne beides = Soll-Touren × (1 − Eigenanteil-Soll) × Ø-Tarif. z.b.v.-Fahrten der Spediteure kosten, zählen aber nicht als Tour."],
-  ["Zusatzfahrten (Personalmangel)", "Je Tag werden die Spediteurfahrten aus dem Tourenplan mit dem Standard verglichen (gleiche Linie + Tour, dann gleiche Linie, dann gleiche Spedition). Jede Fahrt darüber hinaus ist eine Zusatzfahrt wegen Personalmangel, mit ihrem Tarif als Mehrkosten. Eigenanteil ohne Zusatzfahrten = (eigen + Zusatzfahrten) ÷ besetzte Touren. Ohne Standardwochen: Schätzung über Krankheitstage über der Soll-Quote."],
+  ["Zusatzfahrten (Personalmangel)", "Je Tag werden die Spediteurfahrten aus dem Tourenplan mit dem Standard verglichen (gleiche Linie + Tour, dann gleiche Linie, dann gleiche Spedition). Danach werden Reste innerhalb derselben Woche abgeglichen (verschobene Fahrten, z. B. Feiertag); auch eine andere Spedition auf derselben Tour zählt als Standard. Jede Fahrt darüber hinaus ist eine Zusatzfahrt wegen Personalmangel, mit ihrem Tarif als Mehrkosten. Abweichung Kosten = Zusatzfahrten − nicht gefahrene Standardfahrten ± Preisunterschiede. Eigenanteil ohne Zusatzfahrten = (eigen + Zusatzfahrten) ÷ besetzte Touren. Ohne Standardwochen: Schätzung über Krankheitstage über der Soll-Quote."],
   ["Grundsatz", "Ist kommt immer aus den hochgeladenen Wochen-Tourenplänen. Soll = Standard: Vorlage Tour 1–4 der Woche (plus ggf. Ergänzungen aus dem Vorgaben-Excel). Jede Spediteurfahrt darüber hinaus ist eine Zusatzfahrt wegen Personalmangel."],
   ["Ampel", "Grün = im Ziel, Gelb = innerhalb Toleranz, Rot = außerhalb. Toleranzen unter ⚙ Vorgaben."]
 ];
