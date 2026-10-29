@@ -33643,6 +33643,7 @@ SPED_FP_TARIFREGELN = [
     _tr("Sped. Elbfracht / Kudex", "Einschicht 36er", 650.00),
     _tr("Spedition Ihde", "x885 / 5035 / 1885 Picnic", 595.00, touren="x885, 5035"),
     _tr("Spedition Ihde", "Standard", 595.00),
+    _tr("Pfenning", "5073", 825.00, touren="5073"),
     # Pfenning 1 (19:00) + 2 (5:00) als Doppelschicht: 1.355 € je Tag = 677,50 € je Fahrt
     _tr("Pfenning", "Doppelschicht (1.355 € je Tag, ½ je Fahrt)", 677.50, linie="8041, 8042"),
     _tr("Pfenning", "Einschicht Sattel", 825.00, linie="", aktiv=False),
@@ -33674,7 +33675,7 @@ SPED_FP_TARIFREGELN = [
     _tr("Zippel Logistik", "Ahaus m. Glandorf o. Borgholzhausen", 1555.00, text="glandorf, borgholzhausen, borkholzhausen"),
     _tr("Zippel Logistik", "Ahaus (RL) – Elfering Ahaus ist immer Rundlauf", 1380.00, text="ahaus"),
     _tr("Zippel Logistik", "Ahaus (OneWay)", 800.00, text="ahaus", aktiv=False),
-    _tr("Zippel Logistik", "HUPA MAL Gigaliner (T2)", 980.00, linie="8024"),
+    _tr("Zippel Logistik", "HUPA MAL Gigaliner (T2)", 1030.00, linie="8024"),
     _tr("Zippel Logistik", "HUPA MAL Sattel", 635.00, text="malchow, machow, mal, hupa"),
     _tr("deVries", "1010, 2007, 3006, 4009, 5009", 900.00, touren="1010, 2007, 3006, 4009, 5009"),
     _tr("deVries", "Standard", 900.00),
