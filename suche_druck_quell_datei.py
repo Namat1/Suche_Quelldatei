@@ -41451,7 +41451,7 @@ html,body{{height:100%;font-family:'Segoe UI',Arial,sans-serif}}
   overflow:visible;
   scrollbar-width:none;
 }}
-.nav-rows{{flex:1;min-width:0;max-width:1760px;margin:0 auto;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px;justify-content:center;align-content:center}}
+.nav-rows{{flex:1;min-width:0;max-width:1760px;margin:0 auto;display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:6px;justify-content:center;align-content:center}}
 .nav-row{{display:contents}}
 .nav-rows .nav-dd{{width:100%}}
 .nav-rows .nav-btn,.nav-rows .nav-dd-btn{{width:100%;justify-content:center;text-align:center;padding:7px 6px;font-size:11.5px;display:flex;align-items:center;gap:4px}}
@@ -41637,6 +41637,7 @@ iframe.active{{display:block}}
   <button class="nav-btn" id="btn-gk" onclick="showArea('gk')">&#127970; Gro&#223;kunden</button>
   <button class="nav-btn" id="btn-hupa" onclick="showArea('hupa')">&#128230; HuPa</button>
   <button class="nav-btn" id="btn-tel" onclick="showArea('tel')">&#128222; Telefonliste</button>
+  <button class="nav-btn" id="btn-module" onclick="showArea('module')">&#128218; Module</button>
   <button class="nav-btn" id="btn-azubi" onclick="showArea('azubi')">&#127891; Azubis BKF</button>
   <div class="nav-dd" id="dd-sped">
     <button class="nav-dd-btn" id="btn-sped" onclick="ddToggle('sped',event)">
@@ -43011,6 +43012,9 @@ document.addEventListener("click", function() {{
 // ── Navigation ────────────────────────────────────────────────────────────────
 function showArea(s) {{
   currentArea = s;
+  document.getElementById("panel-module").style.display = s==="module" ? "block" : "none";
+  document.getElementById("btn-module").classList.toggle("active", s==="module");
+  if(s==="module") refreshModulePanel();
   // iframes
   document.getElementById("frame-suche").className = (s==="suche")?"active":"";
   // Dropdown-Buttons aktiv/inaktiv
@@ -46808,7 +46812,7 @@ function ddSelectFaMode(mode) {{
 </html>"""
 
 
-def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", hupa_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None, tourzuordnung_html: str = "", azubi_json: str = "{}") -> str:
+def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", hupa_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None, tourzuordnung_html: str = "", azubi_json: str = "{}", module_json: str = "[]") -> str:
     _combine_started = time.perf_counter()
     try:
         _logo_up = st.session_state.get("g_logo")
@@ -46829,7 +46833,7 @@ def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa
     fw_graph_js_code = js_parts['fw_graph']
     tank_panels_html = _tank_panels_html()
     tank_js_code = _tank_dashboard_js()
-    hupa_panels_html = _hupa_panels_html() + _azubi_panels_html()
+    hupa_panels_html = _hupa_panels_html() + _azubi_panels_html() + _module_panel_html(module_json)
     hupa_js_code = _hupa_dashboard_js() + _azubi_dashboard_js()
     tourzuordnung_panel_html = _tourzuordnung_panel_html(tourzuordnung_html)
     verstoss_js_code = js_parts['verstoss']
@@ -47661,6 +47665,132 @@ def _azubi_name_key(name) -> str:
     s = s.replace("mm", "m")
     toks = sorted(set(t for t in s.split() if t))
     return " ".join(toks)
+
+
+def parse_module_excel(up) -> str:
+    """Liest nur Mitarbeiter, Modultermine und Gültigkeit der Schlüsselzahl 95."""
+    import datetime as dt
+    import io
+    import json
+    import openpyxl
+
+    def iso(value):
+        if isinstance(value, dt.datetime):
+            value = value.date()
+        if isinstance(value, str):
+            for pattern in ("%d.%m.%Y", "%Y-%m-%d"):
+                try:
+                    value = dt.datetime.strptime(value.strip(), pattern).date()
+                    break
+                except ValueError:
+                    continue
+        return value.isoformat() if isinstance(value, dt.date) and value.year > 1904 else ""
+
+    workbook = openpyxl.load_workbook(io.BytesIO(up.getvalue()), read_only=True, data_only=True)
+    try:
+        title = next((n for n in workbook.sheetnames if n.strip().casefold() == "modulschulungen bkrfq"), None)
+        if not title:
+            raise ValueError("Das Tabellenblatt „Modulschulungen BKrFQ“ fehlt.")
+        rows = workbook[title].iter_rows(min_row=5, max_col=14, values_only=True)
+        headings = next(rows, ())
+        if len(headings) < 14 or str(headings[13]).strip() != "95" or any(
+            str(headings[3 + 2*i]).strip().lower() != f"modul {i+1}" for i in range(5)
+        ):
+            raise ValueError("Bitte die Excel-Vorlage mit Modul 1 bis 5 und der Spalte „95“ verwenden.")
+        next(rows, None)
+        people = []
+        for row in rows:
+            if not str(row[0] or "").strip():
+                continue
+            modules = []
+            for i in range(5):
+                start = iso(row[3 + 2*i])
+                end = iso(row[4 + 2*i]) if start else ""
+                modules.append([start, end])
+            people.append({"name": str(row[0]).strip(), "end": iso(row[13]), "modules": modules})
+        if not people:
+            raise ValueError("Das Modulblatt enthält keine Mitarbeiter.")
+        people.sort(key=lambda p: (p["end"] or "9999", p["name"].casefold()))
+        return json.dumps(people, ensure_ascii=False)
+    finally:
+        workbook.close()
+
+
+def _module_panel_html(module_json: str) -> str:
+    import json
+    from html import escape
+
+    def display(value):
+        return ".".join(reversed(value.split("-"))) if value else "—"
+
+    people = json.loads(module_json or "[]")
+    lines = []
+    for idx, person in enumerate(people):
+        details = []
+        missing = []
+        for number, (start, end) in enumerate(person["modules"], 1):
+            if not start:
+                missing.append(str(number))
+            status = "✓ Erfasst" if start else "Fehlt"
+            details.append(f"<tr><th>Modul {number}</th><td>{display(start)}</td><td>{display(end)}</td><td>{status}</td></tr>")
+        summary = "Modul " + ", ".join(missing) if missing else '<b class="mod-done">✓ Fertig</b>'
+        end = person["end"]
+        lines.append(f"""<tr data-end="{end}"><td><button class="mod-name" aria-expanded="false" aria-controls="mod-detail-{idx}">{escape(person['name'])}</button></td>
+<td>{display(end) if end else 'Datum fehlt'}</td><td>{summary}</td><td class="mod-time"></td></tr>
+<tr id="mod-detail-{idx}" class="mod-detail" hidden><td colspan="4"><table aria-label="Moduldetails"><thead><tr><th>Modul</th><th>Schulung am</th><th>Gültig bis</th><th>Nachweis</th></tr></thead><tbody>{''.join(details)}</tbody></table></td></tr>""")
+    return """<style>
+#panel-module{display:none;flex:1;min-height:0;overflow:auto;padding:18px;background:#f1f5f9;font:14px 'Segoe UI',Arial,sans-serif;color:#132033}
+#panel-module .mod-card{max-width:1500px;margin:auto;background:#fff;border:1px solid #dbe3ed;border-radius:12px;box-shadow:0 3px 12px #1021340d;overflow:hidden}
+#panel-module header{background:linear-gradient(115deg,#173655,#285782);padding:18px 22px;color:white}
+#panel-module h2{margin:0;font-size:22px;color:white}#panel-module header p{margin:4px 0 0;color:#dfebf6}
+#panel-module .mod-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:15px}
+#panel-module input,#panel-module select{font:inherit;padding:7px 9px;border:1px solid #b8c6d6;border-radius:6px}
+#panel-module .mod-table{overflow-x:auto}#panel-module table{border-collapse:collapse;width:100%;font:inherit}
+#panel-module td,#panel-module th{text-align:left;padding:9px 14px;border-bottom:1px solid #e2e8f0;white-space:nowrap}
+#panel-module th{background:#edf3f9;color:#24415c}#panel-module .mod-detail>td{background:#f7f9fc;padding:12px 24px}
+#panel-module .mod-name{color:#245a93;background:none;border:0;cursor:pointer;font:inherit;font-weight:600;padding:2px}
+#panel-module .mod-name:before{content:'▸ ';}#panel-module .mod-name[aria-expanded=true]:before{content:'▾ '}
+#panel-module .mod-done{color:#16623f;background:#ddf5e7;border-radius:5px;padding:3px 7px}
+#panel-module [hidden]{display:none!important}#panel-module .mod-empty{padding:16px;color:#526579}
+</style><section id="panel-module"><div class="mod-card"><header><h2>Module</h2><p>Schlüsselzahl 95 und Weiterbildung je Mitarbeiter</p></header>""" + (
+        """<div class="mod-tools"><label>Mitarbeitersuche <input type="search" placeholder="Name eingeben"></label>
+<label>Friststatus <select><option value="">Alle Fristen</option><option value="late">Abgelaufen</option><option value="soon">Binnen 90 Tagen</option><option value="later">Später fällig</option><option value="missing">Datum fehlt</option></select></label><output aria-live="polite"></output></div>
+<div class="mod-table"><table><thead><tr><th>Mitarbeiter</th><th>95 gültig bis</th><th>Fehlende Module</th><th>Restzeit bis Ablauf</th></tr></thead><tbody>""" + "".join(lines) + "</tbody></table></div>"
+        if people else '<p class="mod-empty">Bitte unter „Zusatzdateien“ die Excel-Datei für Module hochladen und die HTML neu erstellen.</p>'
+    ) + """</div></section><script>
+function refreshModulePanel(){
+  const panel = document.getElementById('panel-module');
+  const query = panel.querySelector('input');
+  if(!query) return;
+  const term = query.value.trim().toLowerCase(), selected = panel.querySelector('select').value;
+  const now = new Date(), today = Date.UTC(now.getFullYear(),now.getMonth(),now.getDate());
+  let count = 0;
+  for(const row of panel.querySelectorAll('tr[data-end]')){
+    const days = row.dataset.end ? (Date.parse(row.dataset.end+'T00:00:00Z')-today)/86400000 : null;
+    const state = days === null ? 'missing' : days < 0 ? 'late' : days <= 90 ? 'soon' : 'later';
+    const unit = Math.abs(days)===1 ? ' Tag' : ' Tage';
+    row.lastElementChild.textContent = days === null ? 'Datum fehlt' : days===0 ? 'Heute fällig' :
+      days < 0 ? Math.abs(days)+unit+' überfällig' : days+unit;
+    const button = row.querySelector('button');
+    row.hidden = !button.textContent.toLowerCase().includes(term) || Boolean(selected && selected!==state);
+    row.nextElementSibling.hidden = row.hidden || button.getAttribute('aria-expanded')!=='true';
+    if(!row.hidden) count++;
+  }
+  panel.querySelector('output').textContent = count ? count+' Mitarbeiter' : 'Keine Treffer';
+}
+(function(){
+  const panel = document.getElementById('panel-module');
+  panel.addEventListener('input',refreshModulePanel);
+  panel.addEventListener('change',refreshModulePanel);
+  panel.addEventListener('click',function(event){
+    const button = event.target.closest('.mod-name');
+    if(!button) return;
+    const expanded = button.getAttribute('aria-expanded')==='true';
+    button.setAttribute('aria-expanded',String(!expanded));
+    document.getElementById(button.getAttribute('aria-controls')).hidden = expanded;
+  });
+})();
+</script>"""
 
 
 def parse_azubi_excel(up) -> str:
@@ -49603,6 +49733,7 @@ def _build_generation_metadata(ready_instances: list, generated_at: datetime.dat
         {"label": "Tourzuordnung", "value": str(str(st.session_state.get("tourzuordnung_html", "") or "").count(' driver-card"')), "detail": "Fahrer (4 Wochen)"},
         {"label": "Großkunden", "value": str(len(big_customers) if isinstance(big_customers, list) else 0), "detail": "Kunden"},
         {"label": "Spediteure", "value": str(len(carriers.get("fahrten", [])) if isinstance(carriers, dict) else 0), "detail": "Fahrten"},
+        {"label": "Module", "value": str(len(_safe_state_json("module_json", []))), "detail": "Mitarbeiter"},
         {"label": "Azubis BKF", "value": str(sum(len(y.get("people", [])) for y in azubis.get("years", [])) if isinstance(azubis, dict) else 0), "detail": "Einträge (alle Jahre)"},
         {"label": "Fahrerbewertung", "value": str(len(driver_rating.get("drivers", [])) if isinstance(driver_rating, dict) else 0), "detail": "Fahrer"},
         {"label": "PDF-Dokumente", "value": str(pdf_count), "detail": f"{_human_size(pdf_bytes)} komprimiert"},
@@ -49642,7 +49773,7 @@ def _estimate_export_size(ready_instances: list) -> int:
         "tel_json", "sam_json", "fa_json", "zulage_json",
         "drittkunden_json", "fahrzeugwaesche_json", "tanken_json", "hupa_json", "tourzuordnung_html", "verstoss_json",
         "spesen_json", "grosskunden_json", "timerec_json",
-        "spediteure_json", "fahrerbewertung_json", "azubi_json",
+        "spediteure_json", "fahrerbewertung_json", "azubi_json", "module_json",
     ):
         extra_chars += len(str(st.session_state.get(key, "") or ""))
 
@@ -49724,7 +49855,7 @@ def _build_export_preflight(ready_instances: list) -> tuple[list[dict], list[str
     optional_keys = (
         "tel_json", "zulage_json", "drittkunden_json", "fahrzeugwaesche_json", "tanken_json",
         "verstoss_json", "spesen_json", "grosskunden_json", "timerec_json",
-        "spediteure_json", "fahrerbewertung_json", "tourzuordnung_html", "azubi_json",
+        "spediteure_json", "fahrerbewertung_json", "tourzuordnung_html", "azubi_json", "module_json",
     )
     loaded_optional = sum(
         1 for key in optional_keys
@@ -50240,6 +50371,12 @@ with tab_extra:
             summary_fn=lambda j: f"Telefonliste: {len(json.loads(j))} Gruppen"
         )
 
+        _extra_single_upload(
+            "Module und Schlüsselzahl 95 (Excel)", ["xlsx"], "module",
+            parse_module_excel,
+            summary_fn=lambda j: f"Module: {len(json.loads(j))} Mitarbeiter",
+        )
+
         def _azubi_summary(j):
             d = json.loads(j or "{}")
             ys = d.get("years", [])
@@ -50551,6 +50688,7 @@ with tab_dl:
                         last_updated=generated_at.strftime("Stand: %d.%m.%Y %H:%M"),
                         generation_meta=generation_meta,
                         tourzuordnung_html=st.session_state.get("tourzuordnung_html", ""),
+                        module_json=st.session_state.get("module_json", "[]"),
                         azubi_json=st.session_state.get("azubi_json", "{}"),
                     )
 
