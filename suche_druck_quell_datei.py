@@ -41892,7 +41892,7 @@ document.addEventListener('keydown',function(e){{if(e.key==='Escape')closeBuildI
           <h2 style="color:#0f172a;font-size:18px;font-weight:900;margin:0;letter-spacing:-.2px">Busfahrplan Mitarbeiterbus</h2>
           <p style="color:#64748b;font-size:12px;margin:2px 0 0 0;font-weight:500">Fahrplan &amp; Notfallplan &middot; Becker Tours</p>
         </div>
-        <span style="background:linear-gradient(180deg,#fde047 0%,#facc15 100%);color:#713f12;font-weight:900;font-size:12px;padding:7px 14px;border-radius:8px;border:1px solid #eab308;box-shadow:0 2px 6px rgba(234,179,8,.25);white-space:nowrap">g&uuml;ltig ab KW&nbsp;23</span>
+        <span style="background:linear-gradient(180deg,#fde047 0%,#facc15 100%);color:#713f12;font-weight:900;font-size:12px;padding:7px 14px;border-radius:8px;border:1px solid #eab308;box-shadow:0 2px 6px rgba(234,179,8,.25);white-space:nowrap">g&uuml;ltig ab KW&nbsp;49</span>
         <button onclick="busPDF()" style="padding:10px 18px;background:linear-gradient(180deg,#ef4444 0%,#dc2626 100%);color:#fff;border:none;border-radius:8px;font-weight:800;font-size:12px;cursor:pointer;font-family:inherit;box-shadow:0 2px 6px rgba(220,38,38,.28);display:inline-flex;align-items:center;gap:7px;white-space:nowrap">&#128196; PDF / Drucken</button>
       </div>
       <div id="bus-content"></div>
