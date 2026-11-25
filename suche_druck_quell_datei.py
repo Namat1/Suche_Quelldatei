@@ -71,7 +71,7 @@ _boot_log("04 Seitenkonfiguration gesetzt")
 APP_CACHE_VERSION = "hupa-dashboard-2026-10-06-v60-picnic-all-times-hotfix"
 EXTRA_CACHE_VERSION = "extra-parser-2026-10-26-sped-soll-ist-v8"
 TIMEREC_PARSER_VERSION = "timerec-parser-2026-09-20-v3-netto-saturday-contenthash"
-APP_DISPLAY_VERSION = "58"
+APP_DISPLAY_VERSION = "59"
 APP_DISPLAY_NAME = "NFC Generator"
 
 
@@ -46955,7 +46955,108 @@ def _nfc_news_editor():
         return enabled, rows, True
 
 
-def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", hupa_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None, tourzuordnung_html: str = "", azubi_json: str = "{}", module_json: str = "[]", show_rvv: bool = True, news_rows: list | None = None) -> str:
+# NFC calendar: offline holiday/holiday-season data and Outlook agenda import.
+def _nfc_calendar_pdf(data):
+    try:
+        import fitz
+        with fitz.open(stream=data, filetype='pdf') as doc:
+            raw='\n'.join(p.get_text() for p in doc)
+    except ImportError:
+        from pypdf import PdfReader
+        raw='\n'.join(p.extract_text() or '' for p in PdfReader(io.BytesIO(data)).pages)
+    lines=[s.strip() for s in raw.splitlines() if s.strip()]
+    rx=re.compile(r'^(?:Mo|Di|Mi|Do|Fr|Sa|So),\s*(\d{4}-\d{2}-\d{2}),?\s*(\d{2}:\d{2})\s*(?:bis\s*(?:Mo|Di|Mi|Do|Fr|Sa|So),\s*(\d{4}-\d{2}-\d{2}),?\s*|[–—-]\s*)(\d{2}:\d{2})$')
+    rows=[]
+    for i,line in enumerate(lines):
+        m=rx.match(line)
+        if not m or i==0: continue
+        a,t,b,u=m.groups(); title=lines[i-1]; loc=''
+        if i+1<len(lines) and lines[i+1].startswith('Ort:'):
+            loc=lines[i+1][4:].strip()
+            if loc.count('(')>loc.count(')') and i+2<len(lines) and not rx.match(lines[i+2]): loc+=' '+lines[i+2]
+        rows.append(dict(title=title,start=a,end=b or a,time=t,until=u,location=loc,kind='Werkstatt',state=''))
+    if not rows: raise ValueError('Keine Termine erkannt. Bitte Outlook als detaillierte Terminliste mit Datum und Uhrzeit drucken.')
+    return rows
+
+
+def _nfc_calendar_unique(rows):
+    out={}
+    for r in rows:
+        k=tuple(r.get(x,'') for x in ('title','start','end','time','until','kind','state'))
+        if k not in out or len(r.get('location',''))>len(out[k].get('location','')): out[k]=r
+    return sorted(out.values(),key=lambda r:(r['start'],r.get('time',''),r['title']))
+
+
+def _nfc_calendar_public(states):
+    # KMK 09.10.2025: school years 2025/26 through 2027/28; regional exceptions excluded.
+    ranges={
+    'MV':['20.12.2025-03.01.2026','09.02-20.02','30.03-08.04','15.05','22.05-26.05','13.07-22.08','15.10-24.10','21.12.2026-02.01.2027','08.02-19.02','24.03-02.04','07.05','14.05-18.05','05.07-14.08','14.10-23.10','22.12.2027-04.01.2028','05.02-18.02','12.04-21.04','26.05','02.06-06.06','26.06-05.08'],
+    'SH':['19.12.2025-06.01.2026','26.03-10.04','15.05','04.07-15.08','12.10-24.10','21.12.2026-06.01.2027','30.03-10.04','07.05','03.07-14.08','11.10-23.10','23.12.2027-08.01.2028','03.04-15.04','26.05','24.06-04.08'],
+    'HH':['17.12.2025-02.01.2026','30.01','02.03-13.03','11.05-15.05','09.07-19.08','19.10-30.10','21.12.2026-01.01.2027','29.01','01.03-12.03','07.05-14.05','01.07-11.08','11.10-22.10','20.12.2027-31.12.2027','28.01','06.03-17.03','22.05-26.05','03.07-11.08'],
+    'NI':['22.12.2025-05.01.2026','02.02-03.02','23.03-07.04','15.05','26.05','02.07-12.08','12.10-24.10','23.12.2026-09.01.2027','01.02-02.02','22.03-03.04','07.05','18.05','08.07-18.08','16.10-30.10','23.12.2027-08.01.2028','31.01-01.02','10.04-22.04','26.05','06.06','20.07-30.08'],
+    'BB':['22.12.2025-02.01.2026','02.02-07.02','30.03-10.04','26.05','09.07-22.08','19.10-30.10','23.12.2026-02.01.2027','01.02-06.02','22.03-03.04','18.05','01.07-14.08','11.10-23.10','23.12.2027-31.12.2027','31.01-05.02','10.04-22.04','29.06-12.08']}
+    result=[]
+    def add(title,a,b,kind,state=''):
+        result.append(dict(title=title,start=a.isoformat(),end=b.isoformat(),time='',until='',location='',kind=kind,state=state))
+    for state in states:
+        year=2025
+        for item in ranges[state]:
+            parts=item.split('-'); dates=[]
+            for p in (parts if len(parts)==2 else parts*2):
+                if len(p.split('.'))==3:
+                    d=datetime.datetime.strptime(p,'%d.%m.%Y').date()
+                else: d=datetime.datetime.strptime(p+f'.{year}','%d.%m.%Y').date()
+                dates.append(d)
+            add('Schulferien '+state,dates[0],dates[1],'Ferien',state)
+            if len(parts[0].split('.'))==3: year=dates[0].year+1
+    # Gregorian Easter computation, statutory days for these five states.
+    for y in range(2025,2036):
+        a=y%19;b=y//100;c=y%100;d=b//4;e=b%4;f=(b+8)//25;g=(b-f+1)//3;h=(19*a+b-d-g+15)%30;i=c//4;k=c%4;l=(32+2*e+2*i-h-k)%7;m=(a+11*h+22*l)//451
+        z=h+l-7*m+114; easter=datetime.date(y,z//31,z%31+1)
+        fixed=[('Neujahr',1,1),('Tag der Arbeit',5,1),('Tag der Deutschen Einheit',10,3),('Reformationstag',10,31),('1. Weihnachtstag',12,25),('2. Weihnachtstag',12,26)]
+        if states:
+            for n,mo,day in fixed: dt=datetime.date(y,mo,day);add(n,dt,dt,'Feiertag')
+            for n,off in [('Karfreitag',-2),('Ostermontag',1),('Christi Himmelfahrt',39),('Pfingstmontag',50)]: dt=easter+datetime.timedelta(days=off);add(n,dt,dt,'Feiertag')
+        if 'MV' in states: dt=datetime.date(y,3,8);add('Internationaler Frauentag (MV)',dt,dt,'Feiertag','MV')
+        if 'BB' in states:
+            for n,off in [('Ostersonntag (BB)',0),('Pfingstsonntag (BB)',49)]: dt=easter+datetime.timedelta(days=off);add(n,dt,dt,'Feiertag','BB')
+    return result
+
+
+def _nfc_calendar_editor():
+    with st.expander('📅 Kalender verwalten',expanded=False):
+        enabled=st.checkbox('Kalenderbutton anzeigen',value=True,key='nfc_cal_enable')
+        states=st.multiselect('Bundesländer für Feiertage und Schulferien',['MV','SH','HH','NI','BB'],default=['MV','SH','HH','NI','BB'],key='nfc_cal_states')
+        uploads=st.file_uploader('Outlook-Terminlisten als PDF (mehrere möglich)',type=['pdf'],accept_multiple_files=True,key='nfc_cal_pdf')
+        rows=[]; valid=True
+        for up in uploads or []:
+            try:
+                entries=_nfc_calendar_pdf(up.getvalue());rows.extend(entries);st.caption(f'{up.name}: {len(_nfc_calendar_unique(entries))} unterschiedliche Termine')
+            except Exception as exc: st.error(f'{up.name}: {exc}');valid=False
+        rows=_nfc_calendar_unique(rows)
+        st.success(f'{len(rows)} unterschiedliche Werkstatttermine')
+        if rows: st.dataframe(rows,hide_index=True,width='stretch')
+        st.caption('Schulferien: KMK, Stand 09.10.2025, Januar 2026 bis Sommer 2028; keine beweglichen Schultage oder Insel-Sonderregelungen. Feiertage: 2025–2035.')
+        return enabled, _nfc_calendar_unique(rows+_nfc_calendar_public(states)) if enabled else [], valid or not enabled
+
+
+def _nfc_calendar_panel(rows):
+    payload=json.dumps(rows,ensure_ascii=False).replace('<','\\u003c')
+    return r'''<div id="panel-calendar" style="display:none;flex:1;overflow:auto;background:#e7ecf1;padding:16px;color:#173b68;font:13px Segoe UI,Arial,sans-serif"><style>
+    #panel-calendar *{box-sizing:border-box} #panel-calendar .cal-shell{max-width:1728px;margin:auto} #panel-calendar .cal-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#f3f6f9;border:1px solid #bccada;border-radius:6px;padding:12px;margin-bottom:10px} #panel-calendar button,#panel-calendar select,#panel-calendar input{font:inherit;color:#173b68;border:1px solid #bdcadb;border-radius:5px;background:#fff;padding:7px;cursor:pointer} #panel-calendar button:hover{background:#ffdf57} #panel-calendar .cal-week{display:grid;grid-template-columns:46px repeat(7,minmax(0,1fr));gap:3px;padding:3px;border-bottom:1px solid #d1dbe6;background:#f4f6f8} #panel-calendar .cal-date{background:#fff;min-height:30px;padding:6px;border-radius:4px;font-weight:700} #panel-calendar .cal-today{background:#ffdf57} #panel-calendar .cal-out{opacity:.45} #panel-calendar .cal-event{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;padding:4px 7px;border:0;color:#fff;font-size:12px} #panel-calendar .cal-event:hover{filter:brightness(.9);color:white} #panel-calendar .cal-grid{border:1px solid #bac9da;border-radius:6px;overflow:hidden;background:#f4f6f8} #panel-calendar .cal-kw{font-weight:bold;text-align:center;padding:6px;background:#e2eaf3;border-radius:4px} #panel-calendar .cal-detail{background:#f3f6f9;border:1px solid #bccada;border-radius:6px;padding:12px;margin-top:10px;white-space:pre-wrap} #panel-calendar .cal-year{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px} @media(max-width:800px){#panel-calendar .cal-year{grid-template-columns:1fr}}
+    </style><div class="cal-shell"><div class="cal-toolbar"><strong style="font-size:19px">📅 NFC Logistikkalender</strong><button id="cal-prev">◀</button><strong id="cal-label"></strong><button id="cal-next">▶</button><button id="cal-today">Heute</button><select id="cal-view"><option value="month">Monat</option><option value="week">Woche</option><option value="year">Jahr</option></select><input id="cal-search" placeholder="Kennzeichen / Werkstatt suchen"><select id="cal-state"><option value="">Alle Bundesländer</option><option>MV</option><option>SH</option><option>HH</option><option>NI</option><option>BB</option></select><label><input type="checkbox" id="cal-work" checked> Werkstatt</label><label><input type="checkbox" id="cal-holiday" checked> Feiertage</label><label><input type="checkbox" id="cal-vac" checked> Ferien</label></div><div id="cal-grid"></div><div class="cal-detail" id="cal-detail">Termin anklicken für Details.</div><p>Ferien: KMK (09.10.2025), bis Sommer 2028. Werkstatt: importierter PDF-Datenstand, keine Live-Synchronisierung.</p></div></div><script>(function(){
+    const data=__CAL_DATA__, $=id=>document.getElementById(id), day=86400000, today=new Date(); let cursor=new Date(Date.UTC(today.getFullYear(),today.getMonth(),today.getDate()));
+    const iso=d=>d.toISOString().slice(0,10), date=s=>new Date(s+'T00:00:00Z'), add=(d,n)=>new Date(+d+n*day), monday=d=>add(d,-((d.getUTCDay()+6)%7)), fmt=d=>d.toLocaleDateString('de-DE',{timeZone:'UTC',day:'2-digit',month:'2-digit',year:'numeric'}), month=d=>d.toLocaleDateString('de-DE',{timeZone:'UTC',month:'long',year:'numeric'}), kw=d=>{let t=add(d,3-((d.getUTCDay()+6)%7));return Math.ceil(((t-Date.UTC(t.getUTCFullYear(),0,1))/day+1)/7)};
+    function node(tag,cls,txt){let n=document.createElement(tag);if(cls)n.className=cls;if(txt!=null)n.textContent=txt;return n} function filtered(){let q=$('cal-search').value.toLowerCase(),s=$('cal-state').value;return data.filter(e=>(!s||!e.state||e.state===s)&&({Werkstatt:$('cal-work').checked,Feiertag:$('cal-holiday').checked,Ferien:$('cal-vac').checked}[e.kind])&&(!q||e.kind!=='Werkstatt'||(e.title+' '+e.location).toLowerCase().includes(q)))}
+    function color(e){if(e.kind==='Feiertag')return '#b42318';if(e.kind==='Ferien')return '#54816c';if(/unfall|defekt|liegenbleib|schaden/i.test(e.title))return '#a83c39';if(/wartung|service|\bHU\b/i.test(e.title))return '#247ba0';return '#506a89'}
+    function event(e){let b=node('button','cal-event',e.title);b.style.background=color(e);b.title=e.title+' · '+e.start+' – '+e.end;b.onclick=()=>{$('cal-detail').textContent=e.title+'\n'+fmt(date(e.start))+' '+e.time+' – '+fmt(date(e.end))+' '+e.until+(e.location?'\n'+e.location:'')+'\n'+e.kind};return b}
+    function week(first,mo,events){let w=node('div','cal-week');let k=node('div','cal-kw','KW '+kw(first));k.style.gridColumn='1';w.append(k);for(let i=0;i<7;i++){let d=add(first,i),n=node('div','cal-date'+(d.getUTCMonth()!==mo?' cal-out':'')+(iso(d)===iso(new Date(Date.UTC(today.getFullYear(),today.getMonth(),today.getDate())))?' cal-today':''),['Mo','Di','Mi','Do','Fr','Sa','So'][i]+' '+d.getUTCDate()+'.');n.style.gridColumn=String(i+2);w.append(n)}let lanes=[];for(let e of events.filter(e=>e.start<=iso(add(first,6))&&e.end>=iso(first))){let a=Math.max(0,Math.round((date(e.start)-first)/day)),b=Math.min(6,Math.round((date(e.end)-first)/day)),r=lanes.findIndex(x=>x.every(z=>z[1]<a||z[0]>b));if(r<0){r=lanes.length;lanes.push([])}lanes[r].push([a,b]);let n=event(e);n.style.gridColumn=(a+2)+' / '+(b+3);n.style.gridRow=String(r+2);w.append(n)}return w}
+    function render(){let mode=$('cal-view').value, root=$('cal-grid'), events=filtered();root.replaceChildren();let y=cursor.getUTCFullYear(),m=cursor.getUTCMonth();$('cal-label').textContent=mode==='year'?String(y):mode==='week'?'KW '+kw(cursor)+' · '+fmt(monday(cursor)):month(cursor);if(mode==='year'){let grid=node('div','cal-year');for(let i=0;i<12;i++){let a=new Date(Date.UTC(y,i,1)),b=new Date(Date.UTC(y,i+1,0)),box=node('div','cal-detail'),btn=node('button','',month(a));btn.onclick=()=>{cursor=a;$('cal-view').value='month';render()};box.append(btn);let hits=events.filter(e=>e.start<=iso(b)&&e.end>=iso(a));box.append(node('p','',hits.length+' Termine'));for(let e of hits){let n=event(e);n.style.display='block';n.style.width='100%';n.style.marginBottom='3px';box.append(n)}grid.append(box)}root.append(grid);return}let g=node('div','cal-grid'),first=mode==='week'?monday(cursor):monday(new Date(Date.UTC(y,m,1))),last=mode==='week'?add(first,6):new Date(Date.UTC(y,m+1,0));for(let d=first;d<=last;d=add(d,7))g.append(week(d,m,events));root.append(g)}
+    function move(n){let v=$('cal-view').value;cursor=v==='week'?add(cursor,7*n):new Date(Date.UTC(cursor.getUTCFullYear()+(v==='year'?n:0),cursor.getUTCMonth()+(v==='month'?n:0),1));render()} $('cal-prev').onclick=()=>move(-1);$('cal-next').onclick=()=>move(1);$('cal-today').onclick=()=>{cursor=new Date(Date.UTC(today.getFullYear(),today.getMonth(),today.getDate()));render()};for(let id of ['cal-view','cal-state','cal-work','cal-holiday','cal-vac','cal-search'])$(id).addEventListener(id==='cal-search'?'input':'change',render);window.nfcCalendarRender=render;
+    })();</script>'''.replace('__CAL_DATA__',payload)
+
+
+def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", hupa_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None, tourzuordnung_html: str = "", azubi_json: str = "{}", module_json: str = "[]", show_rvv: bool = True, news_rows: list | None = None, calendar_enabled: bool = False, calendar_rows: list | None = None) -> str:
     _combine_started = time.perf_counter()
     try:
         _logo_up = st.session_state.get("g_logo")
@@ -47083,6 +47184,10 @@ def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa
         zulage_xlsx_fuengers=zulage_xlsx_fuengers,
         zulage_xlsx_drittkunden=zulage_xlsx_drittkunden,
     )
+    if calendar_enabled:
+        _html = _html.replace('<div class="nav-dd" id="dd-infos">', '<button class="nav-btn" id="btn-calendar" onclick="showArea(\'calendar\')">📅 Kalender</button><div class="nav-dd" id="dd-infos">', 1)
+        _html = _html.replace('<div class="frame-wrap">', '<div class="frame-wrap">' + _nfc_calendar_panel(calendar_rows or []), 1)
+        _html = _html.replace('function showArea(s) {', 'function showArea(s) { const cp=document.getElementById("panel-calendar"); if(cp){cp.style.display=s==="calendar"?"block":"none";document.getElementById("btn-calendar").classList.toggle("active",s==="calendar");if(s==="calendar")window.nfcCalendarRender();}', 1)
     if news_rows:
         _html = _html.replace("</nav>", "</nav>" + _nfc_news_html(news_rows), 1)
     _generation_ms = max(0, int(round((time.perf_counter() - _combine_started) * 1000)))
@@ -50759,6 +50864,7 @@ _boot_log("11 Tab Download wird aufgebaut")
 with tab_dl:
     import gc as _gc
     news_enabled, news_rows, news_valid = _nfc_news_editor()
+    calendar_enabled, calendar_rows, calendar_valid = _nfc_calendar_editor()
 
     instances_state = st.session_state.get("instances")
     if not isinstance(instances_state, list) or not instances_state:
@@ -50811,7 +50917,7 @@ with tab_dl:
         )
 
         show_rvv = st.checkbox("RVV-Button in der HTML anzeigen", value=True, key="show_rvv")
-        current_generation_signature = combine_signatures(_generation_source_signature(ready), json.dumps([news_enabled, news_rows, news_valid], ensure_ascii=False))
+        current_generation_signature = combine_signatures(_generation_source_signature(ready), json.dumps([news_enabled, news_rows, news_valid, calendar_enabled, calendar_rows, calendar_valid], ensure_ascii=False))
         stored_generation_meta = st.session_state.get("_generated_app_html_meta", {}) or {}
         stored_html_path = st.session_state.get("_generated_app_html_path")
         if stored_html_path and not Path(stored_html_path).is_file():
@@ -50834,7 +50940,7 @@ with tab_dl:
             type="primary",
             width="stretch",
             key="build_suche_html",
-            disabled=bool(_preflight_blockers) or not news_valid,
+            disabled=bool(_preflight_blockers) or not news_valid or not calendar_valid,
         )
 
         if build_clicked:
@@ -50879,6 +50985,7 @@ with tab_dl:
                         tourzuordnung_html=st.session_state.get("tourzuordnung_html", ""),
                         show_rvv=show_rvv,
                         news_rows=news_rows if news_enabled else [],
+                        calendar_enabled=calendar_enabled, calendar_rows=calendar_rows,
                         module_json=st.session_state.get("module_json", "[]"),
                         azubi_json=st.session_state.get("azubi_json", "{}"),
                     )
