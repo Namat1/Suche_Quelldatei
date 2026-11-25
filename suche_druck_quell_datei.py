@@ -46847,23 +46847,23 @@ def _nfc_news_html(rows):
     if not rows:
         return ""
     rank = {"Dringend": 0, "Wichtig": 1, "Information": 2}
-    colors = {"Dringend": ("#b42318", "#fff2f2"), "Wichtig": ("#946600", "#fff9e6"), "Information": ("#245d96", "#f0f6fc")}
+    colors = {"Dringend": "#b42318", "Wichtig": "#946600", "Information": "#245d96"}
     cards = []
     for r in sorted(rows, key=lambda r: rank[r["Priorität"]]):
-        color, bg = colors[r["Priorität"]]
+        color = colors[r["Priorität"]]
         until = r["Gültig bis"]
         label = "Gültig bis " + datetime.date.fromisoformat(until).strftime("%d.%m.%Y") if until else "Dauerhaft"
-        cards.append(f'<article class="nfc-news-item" data-until="{escape(until)}" data-urgent="{int(r["Priorität"] == "Dringend")}" style="border-left:4px solid {color};background:{bg}"><div style="color:{color};font-size:11px;font-weight:800">{escape(r["Priorität"].upper())}</div><strong>{escape(r["Überschrift"])}</strong><div class="nfc-news-message">{escape(r["Nachricht"])}</div><small>{escape(label)}</small></article>')
+        cards.append(f'<article class="nfc-news-item" data-until="{escape(until)}" data-urgent="{int(r["Priorität"] == "Dringend")}" style="border-left:4px solid {color}"><div style="color:{color};font-size:11px;font-weight:800">{escape(r["Priorität"].upper())}</div><strong>{escape(r["Überschrift"])}</strong><div class="nfc-news-message">{escape(r["Nachricht"])}</div><small>{escape(label)}</small></article>')
     return """<style>
-#nfc-news{width:90%;max-width:1728px;margin:5px auto;flex-shrink:0;border:1px solid #bccada;border-radius:5px;background:#f4f7fa;color:#173b68;font:13px 'Segoe UI',Arial,sans-serif;overflow:hidden}
+#nfc-news{width:calc(100% - 40px);margin:6px 20px 5px;box-sizing:border-box;flex-shrink:0;border:1px solid #bccada;border-radius:5px;background:#eef3f7;color:#173b68;font:13px 'Segoe UI',Arial,sans-serif;overflow:hidden}
 #nfc-news[hidden],#nfc-news [hidden]{display:none!important}
 #nfc-news summary{cursor:pointer;padding:8px 12px;font-weight:800;background:linear-gradient(#f6f8fb,#e4ebf2);list-style:none;display:flex;align-items:center;gap:10px}
 #nfc-news summary::-webkit-details-marker{display:none}
-#nfc-news summary::after{content:'▼';margin-left:auto;color:#52677f}
-#nfc-news[open] summary::after{content:'▲'}
+#nfc-news summary::after{content:'▾';margin-left:auto;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;border:1px solid #b7c7d8;background:#dbe5ef;color:#173b68;font-size:18px;font-weight:900;line-height:1;box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}
+#nfc-news[open] summary::after{content:'▴'}
 #nfc-news-count{font-weight:600;color:#52677f}#nfc-news-urgent{color:#b42318;font-weight:800}
-#nfc-news-list{padding:8px;max-height:30vh;overflow:auto;display:grid;gap:6px}
-.nfc-news-item{padding:8px 12px;border-radius:4px;overflow-wrap:anywhere}.nfc-news-item strong{display:block;margin:3px 0}.nfc-news-message{white-space:pre-wrap;color:#24374d}.nfc-news-item small{display:block;margin-top:4px;color:#52677f}
+#nfc-news-list{padding:8px;max-height:30vh;overflow:auto;display:grid;gap:6px;background:#eef3f7}
+.nfc-news-item{padding:8px 12px;border-radius:4px;overflow-wrap:anywhere;background:transparent;border:1px solid #d3dde8;box-shadow:none}.nfc-news-item strong{display:block;margin:3px 0}.nfc-news-message{white-space:pre-wrap;color:#24374d}.nfc-news-item small{display:block;margin-top:4px;color:#52677f}
 </style><details id="nfc-news" hidden><summary>📢 NFC NEWS <span id="nfc-news-count"></span><span id="nfc-news-urgent"></span></summary><div id="nfc-news-list">""" + "".join(cards) + """</div></details><script>
 (function(){
  const box=document.getElementById('nfc-news');
@@ -46872,7 +46872,7 @@ def _nfc_news_html(rows):
  let count=0,urgent=0;
  box.querySelectorAll('.nfc-news-item').forEach(function(el){el.hidden=!!el.dataset.until && el.dataset.until<today;if(!el.hidden){count++;urgent+=Number(el.dataset.urgent);}});
  box.hidden=!count;document.getElementById('nfc-news-count').textContent=count+' Meldung'+(count===1?'':'en');document.getElementById('nfc-news-urgent').textContent=urgent?'● '+urgent+' dringend':'';
- if(initial && urgent)box.open=true;
+ if(initial)box.open=false;
  }
  refresh(true);setInterval(function(){refresh(false);},60000);
 })();</script>"""
