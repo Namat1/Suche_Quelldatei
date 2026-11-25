@@ -71,7 +71,7 @@ _boot_log("04 Seitenkonfiguration gesetzt")
 APP_CACHE_VERSION = "hupa-dashboard-2026-10-06-v60-picnic-all-times-hotfix"
 EXTRA_CACHE_VERSION = "extra-parser-2026-10-26-sped-soll-ist-v8"
 TIMEREC_PARSER_VERSION = "timerec-parser-2026-09-20-v3-netto-saturday-contenthash"
-APP_DISPLAY_VERSION = "55"
+APP_DISPLAY_VERSION = "57"
 APP_DISPLAY_NAME = "NFC Generator"
 
 
@@ -46855,14 +46855,17 @@ def _nfc_news_html(rows):
         label = "Gültig bis " + datetime.date.fromisoformat(until).strftime("%d.%m.%Y") if until else "Dauerhaft"
         cards.append(f'<article class="nfc-news-item" data-until="{escape(until)}" data-urgent="{int(r["Priorität"] == "Dringend")}" style="border-left:4px solid {color}"><div style="color:{color};font-size:11px;font-weight:800">{escape(r["Priorität"].upper())}</div><strong>{escape(r["Überschrift"])}</strong><div class="nfc-news-message">{escape(r["Nachricht"])}</div><small>{escape(label)}</small></article>')
     return """<style>
-#nfc-news{width:calc(100% - 40px);margin:6px 20px 5px;box-sizing:border-box;flex-shrink:0;border:1px solid #bccada;border-radius:5px;background:#eef3f7;color:#173b68;font:13px 'Segoe UI',Arial,sans-serif;overflow:hidden}
+#nfc-news{width:calc(100% - 40px);max-width:1728px;margin:4px auto;box-sizing:border-box;flex-shrink:0;border:1px solid #c1ccd9;border-radius:5px;background:#f2f4f7;color:#173b68;font:13px 'Segoe UI',Arial,sans-serif;overflow:hidden;box-shadow:0 2px 5px rgba(15,23,42,.07)}
 #nfc-news[hidden],#nfc-news [hidden]{display:none!important}
-#nfc-news summary{cursor:pointer;padding:8px 12px;font-weight:800;background:linear-gradient(#f6f8fb,#e4ebf2);list-style:none;display:flex;align-items:center;gap:10px}
+#nfc-news summary{cursor:pointer;min-height:30px;padding:2px 5px 2px 12px;font-weight:800;background:#f2f4f7;list-style:none;display:flex;align-items:center;gap:9px}
 #nfc-news summary::-webkit-details-marker{display:none}
-#nfc-news summary::after{content:'▾';margin-left:auto;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;border:1px solid #b7c7d8;background:#dbe5ef;color:#173b68;font-size:18px;font-weight:900;line-height:1;box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}
-#nfc-news[open] summary::after{content:'▴'}
+#nfc-news summary:focus-visible{outline:2px solid #3478bd;outline-offset:-2px}
+#nfc-news summary:hover{background:#e9eef4}
+#nfc-news summary::after{content:'▼';margin-left:auto;width:35px;height:24px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;border:1px solid #b7c7d8;background:linear-gradient(#f8fafc,#dde5ee);color:#173b68;font-size:15px;font-weight:900;line-height:1;box-shadow:0 1px 2px rgba(15,23,42,.12)}
+#nfc-news summary:hover::after{background:#d4e0ed;border-color:#8ca6c0}
+#nfc-news[open] summary::after{content:'▲'}
 #nfc-news-count{font-weight:600;color:#52677f}#nfc-news-urgent{color:#b42318;font-weight:800}
-#nfc-news-list{padding:8px;max-height:30vh;overflow:auto;display:grid;gap:6px;background:#eef3f7}
+#nfc-news-list{padding:8px;max-height:30vh;overflow:auto;display:grid;gap:6px;background:#f2f4f7;border-top:1px solid #c1ccd9}
 .nfc-news-item{padding:8px 12px;border-radius:4px;overflow-wrap:anywhere;background:transparent;border:1px solid #d3dde8;box-shadow:none}.nfc-news-item strong{display:block;margin:3px 0}.nfc-news-message{white-space:pre-wrap;color:#24374d}.nfc-news-item small{display:block;margin-top:4px;color:#52677f}
 </style><details id="nfc-news" hidden><summary>📢 NFC NEWS <span id="nfc-news-count"></span><span id="nfc-news-urgent"></span></summary><div id="nfc-news-list">""" + "".join(cards) + """</div></details><script>
 (function(){
@@ -46875,6 +46878,43 @@ def _nfc_news_html(rows):
  if(initial)box.open=false;
  }
  refresh(true);setInterval(function(){refresh(false);},60000);
+ // Align with the outer search card inside the same-origin srcdoc iframe.
+ function alignNews(){
+   const frame=document.getElementById('frame-suche');
+   if(!frame || !frame.getBoundingClientRect().width)return;
+   try {
+     const doc=frame.contentDocument, win=frame.contentWindow;
+     const input=doc && doc.getElementById('smartSearch');
+     const key=doc && doc.getElementById('keySearch');
+     if(!input || !key)return;
+     let card=null, fallback=null;
+     for(let el=input.parentElement;el && el!==doc.body && el!==doc.documentElement;el=el.parentElement){
+       if(!el.contains(key))continue;
+       const r=el.getBoundingClientRect(), css=win.getComputedStyle(el);
+       if(r.width<100 || r.height<20)continue;
+       if(r.height<250 && !fallback)fallback=el;
+       if(parseFloat(css.borderTopWidth)>0 && css.borderTopStyle!=='none' && r.height<250){card=el;break;}
+     }
+     card=card||fallback;
+     if(!card)return;
+     const r=card.getBoundingClientRect(), f=frame.getBoundingClientRect();
+     const parent=box.parentElement.getBoundingClientRect();
+     const left=Math.max(0,f.left+frame.clientLeft+r.left-parent.left);
+     box.style.maxWidth='none';box.style.width=r.width+'px';
+     box.style.marginLeft=left+'px';box.style.marginRight='auto';
+     const css=win.getComputedStyle(card);
+     if(parseFloat(css.borderTopWidth)>0)box.style.borderColor=css.borderTopColor;
+     if(parseFloat(css.borderTopLeftRadius)>0)box.style.borderRadius=css.borderTopLeftRadius;
+   } catch(e) { /* keep responsive fallback if iframe is inaccessible */ }
+ }
+ function bindNewsAlignment(){
+   const frame=document.getElementById('frame-suche');
+   if(frame)frame.addEventListener('load',alignNews);
+   window.addEventListener('resize',alignNews);
+   alignNews();
+   setInterval(alignNews,1000);
+ }
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindNewsAlignment,{once:true});else bindNewsAlignment();
 })();</script>"""
 
 
