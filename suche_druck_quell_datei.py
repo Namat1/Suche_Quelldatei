@@ -71,7 +71,7 @@ _boot_log("04 Seitenkonfiguration gesetzt")
 APP_CACHE_VERSION = "hupa-dashboard-2026-10-06-v60-picnic-all-times-hotfix"
 EXTRA_CACHE_VERSION = "extra-parser-2026-10-26-sped-soll-ist-v8"
 TIMEREC_PARSER_VERSION = "timerec-parser-2026-09-20-v3-netto-saturday-contenthash"
-APP_DISPLAY_VERSION = "54"
+APP_DISPLAY_VERSION = "55"
 APP_DISPLAY_NAME = "NFC Generator"
 
 
@@ -46819,7 +46819,98 @@ function ddSelectFaMode(mode) {{
 </html>"""
 
 
-def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", hupa_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None, tourzuordnung_html: str = "", azubi_json: str = "{}", module_json: str = "[]", show_rvv: bool = True) -> str:
+def _nfc_news_normalize(rows):
+    if not isinstance(rows, list):
+        raise ValueError("News müssen eine Liste sein.")
+    result = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("Ungültiger News-Eintrag.")
+        title = str(row.get("Überschrift") or "").strip()
+        message = str(row.get("Nachricht") or "").strip()
+        if not title and not message:
+            continue
+        until = str(row.get("Gültig bis") or "").strip()
+        if until:
+            until = datetime.date.fromisoformat(until).isoformat()
+        priority = row.get("Priorität", "Information")
+        if priority not in ("Dringend", "Wichtig", "Information"):
+            raise ValueError("Ungültige Priorität.")
+        result.append({"Aktiv": bool(row.get("Aktiv", True)), "Priorität": priority,
+                       "Überschrift": title, "Nachricht": message, "Gültig bis": until})
+    return result
+
+
+def _nfc_news_html(rows):
+    from html import escape
+    rows = [r for r in _nfc_news_normalize(rows) if r["Aktiv"]]
+    if not rows:
+        return ""
+    rank = {"Dringend": 0, "Wichtig": 1, "Information": 2}
+    colors = {"Dringend": ("#b42318", "#fff2f2"), "Wichtig": ("#946600", "#fff9e6"), "Information": ("#245d96", "#f0f6fc")}
+    cards = []
+    for r in sorted(rows, key=lambda r: rank[r["Priorität"]]):
+        color, bg = colors[r["Priorität"]]
+        until = r["Gültig bis"]
+        label = "Gültig bis " + datetime.date.fromisoformat(until).strftime("%d.%m.%Y") if until else "Dauerhaft"
+        cards.append(f'<article class="nfc-news-item" data-until="{escape(until)}" data-urgent="{int(r["Priorität"] == "Dringend")}" style="border-left:4px solid {color};background:{bg}"><div style="color:{color};font-size:11px;font-weight:800">{escape(r["Priorität"].upper())}</div><strong>{escape(r["Überschrift"])}</strong><div class="nfc-news-message">{escape(r["Nachricht"])}</div><small>{escape(label)}</small></article>')
+    return """<style>
+#nfc-news{width:90%;max-width:1728px;margin:5px auto;flex-shrink:0;border:1px solid #bccada;border-radius:5px;background:#f4f7fa;color:#173b68;font:13px 'Segoe UI',Arial,sans-serif;overflow:hidden}
+#nfc-news[hidden],#nfc-news [hidden]{display:none!important}
+#nfc-news summary{cursor:pointer;padding:8px 12px;font-weight:800;background:linear-gradient(#f6f8fb,#e4ebf2);list-style:none;display:flex;align-items:center;gap:10px}
+#nfc-news summary::-webkit-details-marker{display:none}
+#nfc-news summary::after{content:'▼';margin-left:auto;color:#52677f}
+#nfc-news[open] summary::after{content:'▲'}
+#nfc-news-count{font-weight:600;color:#52677f}#nfc-news-urgent{color:#b42318;font-weight:800}
+#nfc-news-list{padding:8px;max-height:30vh;overflow:auto;display:grid;gap:6px}
+.nfc-news-item{padding:8px 12px;border-radius:4px;overflow-wrap:anywhere}.nfc-news-item strong{display:block;margin:3px 0}.nfc-news-message{white-space:pre-wrap;color:#24374d}.nfc-news-item small{display:block;margin-top:4px;color:#52677f}
+</style><details id="nfc-news" hidden><summary>📢 NFC NEWS <span id="nfc-news-count"></span><span id="nfc-news-urgent"></span></summary><div id="nfc-news-list">""" + "".join(cards) + """</div></details><script>
+(function(){
+ const box=document.getElementById('nfc-news');
+ function refresh(initial){
+ const d=new Date(), today=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+ let count=0,urgent=0;
+ box.querySelectorAll('.nfc-news-item').forEach(function(el){el.hidden=!!el.dataset.until && el.dataset.until<today;if(!el.hidden){count++;urgent+=Number(el.dataset.urgent);}});
+ box.hidden=!count;document.getElementById('nfc-news-count').textContent=count+' Meldung'+(count===1?'':'en');document.getElementById('nfc-news-urgent').textContent=urgent?'● '+urgent+' dringend':'';
+ if(initial && urgent)box.open=true;
+ }
+ refresh(true);setInterval(function(){refresh(false);},60000);
+})();</script>"""
+
+
+def _nfc_news_editor():
+    with st.expander("📢 News verwalten", expanded=False):
+        enabled = st.checkbox("News-Bereich in der HTML anzeigen", value=True, key="nfc_news_enabled")
+        st.caption("Mehrere Meldungen möglich. Gültig bis: JJJJ-MM-TT oder leer für dauerhaft. Zeilen können hinzugefügt und gelöscht werden.")
+        if "nfc_news_rows" not in st.session_state:
+            st.session_state["nfc_news_rows"] = []
+        upload = st.file_uploader("News JSON importieren", type=["json"], key="nfc_news_upload")
+        if upload is not None and st.button("News aus JSON übernehmen", key="nfc_news_import"):
+            try:
+                imported = _nfc_news_normalize(json.loads(upload.getvalue().decode("utf-8-sig")))
+                st.session_state["nfc_news_rows"] = imported
+                st.session_state["nfc_news_editor_rev"] = st.session_state.get("nfc_news_editor_rev", 0) + 1
+            except Exception as exc:
+                st.error(f"News-Import fehlgeschlagen: {exc}")
+        columns = ["Aktiv", "Priorität", "Überschrift", "Nachricht", "Gültig bis"]
+        df = pd.DataFrame(st.session_state["nfc_news_rows"], columns=columns).astype({"Aktiv": "bool", "Priorität": "string", "Überschrift": "string", "Nachricht": "string", "Gültig bis": "string"})
+        edited = st.data_editor(df, num_rows="dynamic", hide_index=True, width="stretch",
+            key=f"nfc_news_editor_{st.session_state.get('nfc_news_editor_rev', 0)}",
+            column_config={"Aktiv": st.column_config.CheckboxColumn(default=True),
+                "Priorität": st.column_config.SelectboxColumn(options=["Information", "Wichtig", "Dringend"], default="Information", required=True),
+                "Überschrift": st.column_config.TextColumn(required=True),
+                "Nachricht": st.column_config.TextColumn(width="large"),
+                "Gültig bis": st.column_config.TextColumn(help="JJJJ-MM-TT oder leer")})
+        try:
+            rows = _nfc_news_normalize(edited.astype(object).where(edited.notna(), None).to_dict("records"))
+        except Exception as exc:
+            st.error(f"News bitte korrigieren: {exc}")
+            return enabled, [], False
+        st.download_button("News als JSON sichern", json.dumps(rows, ensure_ascii=False, indent=2), file_name="news.json", mime="application/json", key="nfc_news_export", on_click="ignore")
+        return enabled, rows, True
+
+
+def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa_json: str = "[]", zulage_json: str = "{}", zulage_xlsx_sonder: str = "", zulage_xlsx_fuengers: str = "", drittkunden_json: str = "[]", zulage_xlsx_drittkunden: str = "", fahrzeugwaesche_json: str = "[]", tanken_json: str = "[]", hupa_json: str = "[]", verstoss_json: str = '{"drivers":[],"total_violations":0}', spesen_json: str = '{"drivers":[],"months":[],"total_cost":0,"total_rows":0}', grosskunden_json: str = "[]", timerec_json: str = "{}", spediteure_json: str = '{"katalog":[],"fahrten":[]}', fahrerbewertung_json: str = '{"profile":"","event_types":[],"g_months":{},"g_ev":{},"drivers":[]}', versp_abfahrt_json: str = "{}", last_updated: str = "", generation_meta: dict | None = None, tourzuordnung_html: str = "", azubi_json: str = "{}", module_json: str = "[]", show_rvv: bool = True, news_rows: list | None = None) -> str:
     _combine_started = time.perf_counter()
     try:
         _logo_up = st.session_state.get("g_logo")
@@ -46947,6 +47038,8 @@ def combine_html(instances: list, tel_json: str = "[]", sam_json: str = "[]", fa
         zulage_xlsx_fuengers=zulage_xlsx_fuengers,
         zulage_xlsx_drittkunden=zulage_xlsx_drittkunden,
     )
+    if news_rows:
+        _html = _html.replace("</nav>", "</nav>" + _nfc_news_html(news_rows), 1)
     _generation_ms = max(0, int(round((time.perf_counter() - _combine_started) * 1000)))
     _html_size = len(_html.encode("utf-8"))
     _html = _html.replace(
@@ -50620,6 +50713,7 @@ with tab_extra:
 _boot_log("11 Tab Download wird aufgebaut")
 with tab_dl:
     import gc as _gc
+    news_enabled, news_rows, news_valid = _nfc_news_editor()
 
     instances_state = st.session_state.get("instances")
     if not isinstance(instances_state, list) or not instances_state:
@@ -50672,7 +50766,7 @@ with tab_dl:
         )
 
         show_rvv = st.checkbox("RVV-Button in der HTML anzeigen", value=True, key="show_rvv")
-        current_generation_signature = _generation_source_signature(ready)
+        current_generation_signature = combine_signatures(_generation_source_signature(ready), json.dumps([news_enabled, news_rows, news_valid], ensure_ascii=False))
         stored_generation_meta = st.session_state.get("_generated_app_html_meta", {}) or {}
         stored_html_path = st.session_state.get("_generated_app_html_path")
         if stored_html_path and not Path(stored_html_path).is_file():
@@ -50695,7 +50789,7 @@ with tab_dl:
             type="primary",
             width="stretch",
             key="build_suche_html",
-            disabled=bool(_preflight_blockers),
+            disabled=bool(_preflight_blockers) or not news_valid,
         )
 
         if build_clicked:
@@ -50739,6 +50833,7 @@ with tab_dl:
                         generation_meta=generation_meta,
                         tourzuordnung_html=st.session_state.get("tourzuordnung_html", ""),
                         show_rvv=show_rvv,
+                        news_rows=news_rows if news_enabled else [],
                         module_json=st.session_state.get("module_json", "[]"),
                         azubi_json=st.session_state.get("azubi_json", "{}"),
                     )
