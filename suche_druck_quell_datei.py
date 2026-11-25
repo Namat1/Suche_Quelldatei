@@ -71,7 +71,7 @@ _boot_log("04 Seitenkonfiguration gesetzt")
 APP_CACHE_VERSION = "hupa-dashboard-2026-10-06-v60-picnic-all-times-hotfix"
 EXTRA_CACHE_VERSION = "extra-parser-2026-10-26-sped-soll-ist-v8"
 TIMEREC_PARSER_VERSION = "timerec-parser-2026-09-20-v3-netto-saturday-contenthash"
-APP_DISPLAY_VERSION = "57"
+APP_DISPLAY_VERSION = "58"
 APP_DISPLAY_NAME = "NFC Generator"
 
 
@@ -46855,6 +46855,7 @@ def _nfc_news_html(rows):
         label = "Gültig bis " + datetime.date.fromisoformat(until).strftime("%d.%m.%Y") if until else "Dauerhaft"
         cards.append(f'<article class="nfc-news-item" data-until="{escape(until)}" data-urgent="{int(r["Priorität"] == "Dringend")}" style="border-left:4px solid {color}"><div style="color:{color};font-size:11px;font-weight:800">{escape(r["Priorität"].upper())}</div><strong>{escape(r["Überschrift"])}</strong><div class="nfc-news-message">{escape(r["Nachricht"])}</div><small>{escape(label)}</small></article>')
     return """<style>
+html:has(#nfc-news:not([hidden])),body:has(#nfc-news:not([hidden])){background:#e7ecf1!important}
 #nfc-news{width:calc(100% - 40px);max-width:1728px;margin:4px auto;box-sizing:border-box;flex-shrink:0;border:1px solid #c1ccd9;border-radius:5px;background:#f2f4f7;color:#173b68;font:13px 'Segoe UI',Arial,sans-serif;overflow:hidden;box-shadow:0 2px 5px rgba(15,23,42,.07)}
 #nfc-news[hidden],#nfc-news [hidden]{display:none!important}
 #nfc-news summary{cursor:pointer;min-height:30px;padding:2px 5px 2px 12px;font-weight:800;background:#f2f4f7;list-style:none;display:flex;align-items:center;gap:9px}
@@ -46903,6 +46904,10 @@ def _nfc_news_html(rows):
      box.style.maxWidth='none';box.style.width=r.width+'px';
      box.style.marginLeft=left+'px';box.style.marginRight='auto';
      const css=win.getComputedStyle(card);
+     const bg=win.getComputedStyle(doc.body).backgroundColor;
+     if(bg && bg!=='transparent' && bg!=='rgba(0, 0, 0, 0)' && bg!=='rgb(255, 255, 255)'){
+       document.body.style.setProperty('background-color',bg,'important');
+     }
      if(parseFloat(css.borderTopWidth)>0)box.style.borderColor=css.borderTopColor;
      if(parseFloat(css.borderTopLeftRadius)>0)box.style.borderRadius=css.borderTopLeftRadius;
    } catch(e) { /* keep responsive fallback if iframe is inaccessible */ }
